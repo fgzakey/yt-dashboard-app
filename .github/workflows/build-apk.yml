@@ -1,0 +1,60 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to update the "latest" release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # The repo ships only pubspec.yaml + lib/. Generate the android/
+      # platform folder here so no Gradle boilerplate lives in git.
+      - name: Generate platform scaffolding
+        run: flutter create --platforms=android --org com.fidelkey --project-name yt_dashboard_app .
+
+      # Flutter's release manifest has no INTERNET permission by default —
+      # without this the release APK cannot reach the server at all.
+      - name: Patch AndroidManifest (internet permission + app label)
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.INTERNET' "$M" || \
+            sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$M"
+          sed -i 's#android:label="yt_dashboard_app"#android:label="YT Dashboard"#' "$M"
+
+      - name: Build release APK
+        run: |
+          flutter pub get
+          flutter build apk --release
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: yt-dashboard-app
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      # Also attach the APK to a rolling "latest" release for easy download.
+      - name: Update latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest APK
+          files: build/app/outputs/flutter-apk/app-release.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
