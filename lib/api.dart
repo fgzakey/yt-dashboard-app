@@ -15,7 +15,9 @@ class ApiClient {
 
   ApiClient({this.baseUrl = '', this.password = ''});
 
-  bool get configured => baseUrl.isNotEmpty;
+  // The server URL ships prefilled, so "configured" means the password has
+  // been entered too — first run lands on Settings asking only for it.
+  bool get configured => baseUrl.isNotEmpty && password.isNotEmpty;
 
   Uri _uri(String path, [Map<String, String>? query]) =>
       Uri.parse('$baseUrl$path').replace(queryParameters: query);

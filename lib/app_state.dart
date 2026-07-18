@@ -4,6 +4,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
 import 'models.dart';
 
+/// Prefilled server address — the deployed Space. Only the app password is
+/// needed on first run; override the URL in Settings to point elsewhere.
+const String kDefaultServerUrl = 'https://fgza-yt-dashboard.hf.space';
+
 class AppState extends ChangeNotifier {
   final ApiClient api = ApiClient();
 
@@ -20,7 +24,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> loadPrefs() async {
     final p = await SharedPreferences.getInstance();
-    api.baseUrl = p.getString('baseUrl') ?? '';
+    final savedUrl = p.getString('baseUrl');
+    api.baseUrl = (savedUrl == null || savedUrl.isEmpty) ? kDefaultServerUrl : savedUrl;
     api.password = p.getString('password') ?? '';
     model = p.getString('model') ?? model;
     temperature = p.getDouble('temperature') ?? 0.4;
