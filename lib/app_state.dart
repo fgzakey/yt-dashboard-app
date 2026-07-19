@@ -15,6 +15,9 @@ class AppState extends ChangeNotifier {
   String model = 'google/gemini-2.5-flash';
   double temperature = 0.4;
 
+  // Global text scale for rendered markdown (pinch to zoom, persisted).
+  double mdScale = 1.0;
+
   List<Video> videos = [];
   List<PromptTemplate> prompts = []; // builtins + custom, builtins first
   List<ModelInfo> models = [];
@@ -29,6 +32,7 @@ class AppState extends ChangeNotifier {
     api.password = p.getString('password') ?? '';
     model = p.getString('model') ?? model;
     temperature = p.getDouble('temperature') ?? 0.4;
+    mdScale = p.getDouble('mdScale') ?? 1.0;
     loadedPrefs = true;
     notifyListeners();
   }
@@ -55,6 +59,18 @@ class AppState extends ChangeNotifier {
     await p.setString('model', model);
     await p.setDouble('temperature', temperature);
     notifyListeners();
+  }
+
+  /// Live-update the markdown text scale during a pinch (no disk write).
+  void previewMdScale(double v) {
+    mdScale = v;
+    notifyListeners();
+  }
+
+  /// Persist the markdown text scale (called when the pinch ends).
+  Future<void> saveMdScale() async {
+    final p = await SharedPreferences.getInstance();
+    await p.setDouble('mdScale', mdScale);
   }
 
   Future<void> setModel(String id) async {

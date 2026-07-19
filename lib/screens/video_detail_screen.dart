@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:provider/provider.dart';
 
 import '../app_state.dart';
 import '../main.dart';
+import '../md_zoom.dart';
 import '../models.dart';
 
 class VideoDetailScreen extends StatefulWidget {
@@ -185,7 +185,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                         ),
                         child: isUser
                             ? Text(m.content)
-                            : MarkdownBody(data: m.content, selectable: true),
+                            : ZoomMd(data: m.content),
                       ),
                     );
                   },
@@ -287,7 +287,7 @@ class _ResultViewer extends StatelessWidget {
           const SizedBox(width: 8),
         ],
       ),
-      body: Markdown(data: content, selectable: true),
+      body: ZoomMd(data: content, scrollable: true),
     );
   }
 }
