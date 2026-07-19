@@ -135,6 +135,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
             Tab(text: 'Transcript'),
           ]),
           actions: [
+            const TextSizeButtons(),
             IconButton(
               tooltip: 'Run prompt',
               icon: _running
@@ -271,6 +272,7 @@ class _ResultViewer extends StatelessWidget {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
+          const TextSizeButtons(),
           IconButton(
             tooltip: 'Copy',
             icon: const Icon(Icons.copy),

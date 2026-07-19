@@ -132,6 +132,7 @@ class _ResultDetail extends StatelessWidget {
         title: Text(result.promptName ?? 'Result',
             maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
+          const TextSizeButtons(),
           IconButton(
             tooltip: 'Copy Markdown',
             icon: const Icon(Icons.copy),

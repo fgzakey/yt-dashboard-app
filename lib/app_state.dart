@@ -62,6 +62,13 @@ class AppState extends ChangeNotifier {
   }
 
   /// Live-update the markdown text scale during a pinch (no disk write).
+  /// Bump the global text size by [delta] (e.g. ±0.1) and persist.
+  Future<void> bumpMdScale(double delta) async {
+    mdScale = double.parse((mdScale + delta).clamp(0.6, 3.0).toStringAsFixed(2));
+    notifyListeners();
+    await saveMdScale();
+  }
+
   void previewMdScale(double v) {
     mdScale = v;
     notifyListeners();

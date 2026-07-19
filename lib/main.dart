@@ -21,6 +21,7 @@ class YtDashboardApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scale = context.watch<AppState>().mdScale;
     return MaterialApp(
       title: 'YT Dashboard',
       debugShowCheckedModeBanner: false,
@@ -31,6 +32,13 @@ class YtDashboardApp extends StatelessWidget {
           seedColor: const Color(0xFFE53935),
           brightness: Brightness.dark,
         ),
+      ),
+      // Apply the text size to EVERY Text/Markdown widget in the app
+      // (adjust with the A−/A+ buttons, or pinch on markdown content).
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context)
+            .copyWith(textScaler: TextScaler.linear(scale)),
+        child: child!,
       ),
       home: const HomeShell(),
     );
@@ -99,4 +107,31 @@ void showSnack(BuildContext context, String message) {
   ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(content: Text(message)));
+}
+
+/// A− / A+ buttons that change the global text size. Drop into any AppBar.
+class TextSizeButtons extends StatelessWidget {
+  const TextSizeButtons({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: 'Smaller text',
+          icon: const Icon(Icons.text_decrease),
+          onPressed:
+              state.mdScale <= 0.6 ? null : () => state.bumpMdScale(-0.1),
+        ),
+        IconButton(
+          tooltip: 'Larger text',
+          icon: const Icon(Icons.text_increase),
+          onPressed:
+              state.mdScale >= 3.0 ? null : () => state.bumpMdScale(0.1),
+        ),
+      ],
+    );
+  }
 }
