@@ -19,6 +19,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   final _chatController = TextEditingController();
   bool _sending = false;
   bool _running = false;
+  bool _summarizing = false;
+  String _summaryStatus = '';
 
   Video? _video(AppState state) {
     try {
@@ -125,13 +127,14 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     }
 
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         appBar: AppBar(
           title: Text(v.title ?? v.videoId,
               maxLines: 1, overflow: TextOverflow.ellipsis),
-          bottom: const TabBar(tabs: [
+          bottom: const TabBar(isScrollable: true, tabs: [
             Tab(text: 'Chat'),
+            Tab(text: 'Chapters'),
             Tab(text: 'Transcript'),
           ]),
           actions: [
@@ -150,11 +153,137 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         body: TabBarView(
           children: [
             _buildChat(state, v),
+            _buildChapters(state, v),
             _buildTranscript(v),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _summarizeChapters(AppState state, Video v) async {
+    setState(() {
+      _summarizing = true;
+      _summaryStatus = 'Summarizing…';
+    });
+    try {
+      final n = await state.summarizeChapters(v, onProgress: (s) {
+        if (mounted) setState(() => _summaryStatus = s);
+      });
+      if (mounted) showSnack(context, 'Summarized $n chapter(s).');
+    } catch (e) {
+      if (mounted) showSnack(context, 'Summarize failed: $e');
+    }
+    if (mounted) {
+      setState(() {
+        _summarizing = false;
+        _summaryStatus = '';
+      });
+    }
+  }
+
+  Widget _buildChapters(AppState state, Video v) {
+    if (v.chapters.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'No chapters for this video.\nFetch chapters in the web dashboard (they sync here).',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+    final hasSummaries = v.chapters
+        .any((c) => ((c as Map)['summary'] ?? '').toString().isNotEmpty);
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _summarizing
+                      ? _summaryStatus
+                      : '${v.chapters.length} chapters — tap one to read',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+              FilledButton.tonalIcon(
+                icon: _summarizing
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.auto_awesome, size: 18),
+                label: Text(hasSummaries ? 'Re-summarize' : 'Summarize'),
+                onPressed:
+                    _summarizing ? null : () => _summarizeChapters(state, v),
+              ),
+            ],
+          ),
+        ),
+        if (_summarizing) const LinearProgressIndicator(),
+        Expanded(
+          child: ListView.separated(
+            padding: const EdgeInsets.all(8),
+            itemCount: v.chapters.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (context, i) {
+              final c = Map<String, dynamic>.from(v.chapters[i] as Map);
+              final title = c['title']?.toString() ?? 'Chapter ${i + 1}';
+              final summary = c['summary']?.toString() ?? '';
+              final start = (c['start'] as num?)?.toInt();
+              return ListTile(
+                leading: CircleAvatar(radius: 14, child: Text('${i + 1}')),
+                title: Text(title),
+                subtitle: Text(
+                  [
+                    if (start != null) _fmtTime(start),
+                    if (summary.isNotEmpty) summary,
+                  ].join(' — '),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                onTap: () => showDialog(
+                  context: context,
+                  builder: (_) => Dialog.fullscreen(
+                    child: Scaffold(
+                      appBar: AppBar(
+                        title: Text(title,
+                            maxLines: 1, overflow: TextOverflow.ellipsis),
+                        leading: IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                        actions: const [TextSizeButtons(), SizedBox(width: 4)],
+                      ),
+                      body: ZoomMd(
+                        data: [
+                          if (summary.isNotEmpty) '**Summary:** $summary\n',
+                          v.chapterText(i),
+                        ].join('\n'),
+                        scrollable: true,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  static String _fmtTime(int seconds) {
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    final s = seconds % 60;
+    final mm = m.toString().padLeft(2, '0');
+    final ss = s.toString().padLeft(2, '0');
+    return h > 0 ? '$h:$mm:$ss' : '$m:$ss';
   }
 
   Widget _buildChat(AppState state, Video v) {

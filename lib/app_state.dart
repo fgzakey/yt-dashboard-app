@@ -1,8 +1,30 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
 import 'models.dart';
+
+/// Tolerantly parse a JSON object from a model reply (strips code fences /
+/// surrounding prose). Returns null if nothing parses.
+Map<String, dynamic>? _looseJson(String? content) {
+  if (content == null) return null;
+  var text = content.trim().replaceAll(RegExp(r'^```(?:json)?\s*', caseSensitive: false), '')
+      .replaceAll(RegExp(r'```\s*$'), '').trim();
+  try {
+    final v = jsonDecode(text);
+    if (v is Map) return Map<String, dynamic>.from(v);
+  } catch (_) {}
+  final m = RegExp(r'\{[\s\S]*\}').firstMatch(text);
+  if (m != null) {
+    try {
+      final v = jsonDecode(m.group(0)!);
+      if (v is Map) return Map<String, dynamic>.from(v);
+    } catch (_) {}
+  }
+  return null;
+}
 
 /// Prefilled server address — the deployed Space. Only the app password is
 /// needed on first run; override the URL in Settings to point elsewhere.
@@ -21,9 +43,12 @@ class AppState extends ChangeNotifier {
   List<Video> videos = [];
   List<PromptTemplate> prompts = []; // builtins + custom, builtins first
   List<ModelInfo> models = [];
+  List<Essay> essays = [];
 
   bool loadingVideos = false;
   String? videosError;
+  bool loadingEssays = false;
+  String? essaysError;
 
   Future<void> loadPrefs() async {
     final p = await SharedPreferences.getInstance();
@@ -117,6 +142,64 @@ class AppState extends ChangeNotifier {
   Future<void> deleteVideo(String videoId) async {
     await api.deleteVideo(videoId);
     videos.removeWhere((v) => v.videoId == videoId);
+    notifyListeners();
+  }
+
+  /// Generate a concise 1–2 sentence AI summary for each chapter, grounded
+  /// only in that chapter's transcript. Mirrors the web dashboard. Returns how
+  /// many chapters ended up with a summary.
+  Future<int> summarizeChapters(Video v,
+      {void Function(String status)? onProgress}) async {
+    if (v.chapters.isEmpty) return 0;
+    final timed = v.segments.any((s) => (s as Map)['start'] != null);
+    if (v.chapters.length > 1 && !timed) {
+      throw ApiException(
+          "This transcript has no timestamps, so text can't be mapped to chapters. Re-fetch it with timecodes.",
+          400);
+    }
+    onProgress?.call('Summarizing chapters…');
+    final merged =
+        v.chapters.map((c) => Map<String, dynamic>.from(c as Map)).toList();
+    final parts = <String>[];
+    for (var i = 0; i < merged.length; i++) {
+      final txt = v.chapterText(i, maxChars: 3500);
+      parts.add(
+          'Chapter $i — ${merged[i]['title']}\nTranscript: ${txt.isEmpty ? '(no transcript in range)' : txt}');
+    }
+    final prompt =
+        "For each chapter below, write a concise 1-2 sentence summary grounded ONLY in that chapter's transcript. "
+        'Return STRICT JSON only: {"summaries":[{"i":0,"summary":"..."}]}. No prose, no code fences.\n\n'
+        '${parts.join('\n\n')}';
+    final resp = await api.chat(
+      model: model,
+      messages: [{'role': 'user', 'content': prompt}],
+      temperature: 0.3,
+    );
+    final obj = _looseJson(resp.content);
+    for (final s in (obj?['summaries'] as List? ?? [])) {
+      final i = (s is Map ? s['i'] : null);
+      if (i is int && i >= 0 && i < merged.length) {
+        final sum = s['summary']?.toString() ?? '';
+        if (sum.isNotEmpty) merged[i]['summary'] = sum;
+      }
+    }
+    v.chapters = merged;
+    await saveVideo(v);
+    return merged.where((c) => (c['summary'] ?? '').toString().isNotEmpty).length;
+  }
+
+  // ---- Syntopical essays ----
+
+  Future<void> refreshEssays() async {
+    loadingEssays = true;
+    essaysError = null;
+    notifyListeners();
+    try {
+      essays = await api.listEssays();
+    } catch (e) {
+      essaysError = e.toString();
+    }
+    loadingEssays = false;
     notifyListeners();
   }
 

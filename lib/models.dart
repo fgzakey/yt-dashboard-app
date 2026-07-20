@@ -57,6 +57,35 @@ class Video {
         'chat': chat.map((m) => m.toJson()).toList(),
         'chapters': chapters,
       };
+
+  /// Transcript text for chapter [i], sliced by timestamp — chapters carry a
+  /// `start` (seconds); a chapter owns segments in [start, next.start). Falls
+  /// back to the whole transcript when there are no timestamps.
+  String chapterText(int i, {int? maxChars}) {
+    if (i < 0 || i >= chapters.length) return '';
+    final start = ((chapters[i] as Map)['start'] as num?)?.toDouble() ?? 0;
+    final end = i + 1 < chapters.length
+        ? ((chapters[i + 1] as Map)['start'] as num?)?.toDouble() ??
+            double.infinity
+        : double.infinity;
+    final timed = segments.any((s) => (s as Map)['start'] != null);
+    final buf = StringBuffer();
+    if (timed) {
+      for (final s in segments) {
+        final t = (s as Map)['start'];
+        final ts = t is num ? t.toDouble() : null;
+        if (ts == null || ts < start || ts >= end) continue;
+        if (buf.isNotEmpty) buf.write(' ');
+        buf.write((s['text'] ?? '').toString());
+        if (maxChars != null && buf.length > maxChars) break;
+      }
+    } else {
+      buf.write(text);
+    }
+    var out = buf.toString();
+    if (maxChars != null && out.length > maxChars) out = out.substring(0, maxChars);
+    return out;
+  }
 }
 
 class ChatMessage {
@@ -190,4 +219,37 @@ class ChatResponse {
     if (v == 0) return null;
     return v < 0.01 ? '\$${v.toStringAsFixed(6)}' : '\$${v.toStringAsFixed(4)}';
   }
+}
+
+/// A syntopical synthesis essay from the knowledge graph (served by
+/// /api/essays). The [body] is Markdown; [targetTitle] is the idea/theme the
+/// essay synthesizes across the library.
+class Essay {
+  final dynamic id;
+  final String slug;
+  final String title;
+  final String body;
+  final String? targetTitle;
+  final String? targetType;
+  final String? updatedAt;
+
+  Essay({
+    this.id,
+    required this.slug,
+    required this.title,
+    required this.body,
+    this.targetTitle,
+    this.targetType,
+    this.updatedAt,
+  });
+
+  factory Essay.fromJson(Map<String, dynamic> j) => Essay(
+        id: j['id'],
+        slug: j['slug']?.toString() ?? '',
+        title: j['title']?.toString() ?? 'Untitled essay',
+        body: j['body']?.toString() ?? '',
+        targetTitle: j['target_title']?.toString(),
+        targetType: j['target_type']?.toString(),
+        updatedAt: j['updated_at']?.toString(),
+      );
 }
