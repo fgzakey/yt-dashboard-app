@@ -28,7 +28,8 @@ Map<String, dynamic>? _looseJson(String? content) {
 
 /// Prefilled server address — the deployed Space. Only the app password is
 /// needed on first run; override the URL in Settings to point elsewhere.
-const String kDefaultServerUrl = 'https://fgza-yt-dashboard.hf.space';
+// The YT dashboard was merged into the book dashboard; the old space is gone.
+const String kDefaultServerUrl = 'https://fgza-book-dashboard.hf.space';
 
 class AppState extends ChangeNotifier {
   final ApiClient api = ApiClient();
