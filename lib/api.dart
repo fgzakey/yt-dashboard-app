@@ -125,11 +125,12 @@ class ApiClient {
     _json(res);
   }
 
-  // ---- Results ----
+  // ---- Results (video results live in the merged dashboard's `results` table,
+  // served by /api/db/video-results; /api/db/results is the BOOK table) ----
 
   Future<List<SavedResult>> listResults({String query = '', String? videoId}) async {
     final res = await http.get(
-        _uri('/api/db/results', {
+        _uri('/api/db/video-results', {
           if (videoId != null) 'videoId': videoId,
           if (query.isNotEmpty) 'q': query,
         }),
@@ -148,7 +149,7 @@ class ApiClient {
     String? model,
     String? cost,
   }) async {
-    final res = await http.post(_uri('/api/db/results'),
+    final res = await http.post(_uri('/api/db/video-results'),
         headers: _headers,
         body: jsonEncode({
           'content': content,

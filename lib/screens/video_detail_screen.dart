@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../main.dart';
 import '../md_zoom.dart';
 import '../models.dart';
 import '../md_toc_view.dart';
+import 'past_results.dart';
 
 class VideoDetailScreen extends StatefulWidget {
   final String videoId;
@@ -23,11 +25,68 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   bool _summarizing = false;
   String _summaryStatus = '';
 
+  // Saved results for THIS video (the global Results section, scoped).
+  List<SavedResult> _results = [];
+  bool _resultsLoading = false;
+  String? _resultsError;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(_loadResults);
+  }
+
   Video? _video(AppState state) {
     try {
       return state.videos.firstWhere((v) => v.videoId == widget.videoId);
     } catch (_) {
       return null;
+    }
+  }
+
+  Future<void> _loadResults() async {
+    if (!mounted) return;
+    setState(() {
+      _resultsLoading = true;
+      _resultsError = null;
+    });
+    try {
+      final rs = await context
+          .read<AppState>()
+          .api
+          .listResults(videoId: widget.videoId);
+      if (mounted) setState(() => _results = rs);
+    } catch (e) {
+      if (mounted) setState(() => _resultsError = e.toString());
+    }
+    if (mounted) setState(() => _resultsLoading = false);
+  }
+
+  // ---- YouTube deep links -------------------------------------------------
+
+  /// Best watch URL for a saved video: prefer a real YouTube link, else
+  /// rebuild one from an 11-char video id. Null for pasted transcripts.
+  /// (Same rule as the web dashboard's `youtubeUrl`.)
+  static String? ytUrl(Video v) {
+    final u = (v.url ?? '').trim();
+    if (RegExp(r'youtu\.?be').hasMatch(u)) return u;
+    if (RegExp(r'^[a-zA-Z0-9_-]{11}$').hasMatch(v.videoId)) {
+      return 'https://www.youtube.com/watch?v=${v.videoId}';
+    }
+    return null;
+  }
+
+  /// The same URL, seeked to [seconds].
+  static String ytUrlAt(String base, int seconds) =>
+      '$base${base.contains('?') ? '&' : '?'}t=${seconds}s';
+
+  Future<void> _openUrl(String url) async {
+    try {
+      final ok = await launchUrl(Uri.parse(url),
+          mode: LaunchMode.externalApplication);
+      if (!ok && mounted) showSnack(context, 'Could not open $url');
+    } catch (e) {
+      if (mounted) showSnack(context, 'Could not open the link: $e');
     }
   }
 
@@ -108,6 +167,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           ),
         ),
       );
+      await _loadResults(); // the new result shows up in the Chat tab panel
     } catch (e) {
       if (mounted) {
         setState(() => _running = false);
@@ -126,6 +186,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         body: const Center(child: Text('Video not found.')),
       );
     }
+    final yt = ytUrl(v);
 
     return DefaultTabController(
       length: 3,
@@ -139,6 +200,12 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
             Tab(text: 'Transcript'),
           ]),
           actions: [
+            if (yt != null)
+              IconButton(
+                tooltip: 'Watch on YouTube',
+                icon: const Icon(Icons.smart_display_outlined),
+                onPressed: () => _openUrl(yt),
+              ),
             const TextSizeButtons(),
             IconButton(
               tooltip: 'Run prompt',
@@ -195,6 +262,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         ),
       );
     }
+    final yt = ytUrl(v);
     final hasSummaries = v.chapters
         .any((c) => ((c as Map)['summary'] ?? '').toString().isNotEmpty);
     return Column(
@@ -207,7 +275,9 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                 child: Text(
                   _summarizing
                       ? _summaryStatus
-                      : '${v.chapters.length} chapters — tap one to read',
+                      : yt == null
+                          ? '${v.chapters.length} chapters — tap one to read'
+                          : '${v.chapters.length} chapters — tap to read, ▶ to watch',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
@@ -236,6 +306,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
               final title = c['title']?.toString() ?? 'Chapter ${i + 1}';
               final summary = c['summary']?.toString() ?? '';
               final start = (c['start'] as num?)?.toInt();
+              final chapterUrl =
+                  (yt != null && start != null) ? ytUrlAt(yt, start) : null;
               return ListTile(
                 leading: CircleAvatar(radius: 14, child: Text('${i + 1}')),
                 title: Text(title),
@@ -247,6 +319,14 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                 ),
+                // Live link: opens the video in the YouTube app at this chapter.
+                trailing: chapterUrl == null
+                    ? null
+                    : IconButton(
+                        tooltip: 'Watch from ${_fmtTime(start!)}',
+                        icon: const Icon(Icons.play_circle_outline),
+                        onPressed: () => _openUrl(chapterUrl),
+                      ),
                 onTap: () => showDialog(
                   context: context,
                   builder: (_) => Dialog.fullscreen(
@@ -258,10 +338,21 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                           icon: const Icon(Icons.close),
                           onPressed: () => Navigator.pop(context),
                         ),
-                        actions: const [TextSizeButtons(), SizedBox(width: 4)],
+                        actions: [
+                          if (chapterUrl != null)
+                            IconButton(
+                              tooltip: 'Watch from ${_fmtTime(start!)}',
+                              icon: const Icon(Icons.play_circle_outline),
+                              onPressed: () => _openUrl(chapterUrl),
+                            ),
+                          const TextSizeButtons(),
+                          const SizedBox(width: 4),
+                        ],
                       ),
                       body: ZoomMd(
                         data: [
+                          if (chapterUrl != null)
+                            '▶ [Watch from ${_fmtTime(start!)}]($chapterUrl)\n',
                           if (summary.isNotEmpty) '**Summary:** $summary\n',
                           v.chapterText(i),
                         ].join('\n'),
@@ -290,6 +381,14 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   Widget _buildChat(AppState state, Video v) {
     return Column(
       children: [
+        // Past prompt results for THIS video, above the conversation —
+        // same convention as the web dashboard (results first, controls below).
+        PastResultsPanel(
+          results: _results,
+          loading: _resultsLoading,
+          error: _resultsError,
+          onRefresh: _loadResults,
+        ),
         Expanded(
           child: v.chat.isEmpty
               ? const Center(child: Text('Ask anything about this video.'))
@@ -356,6 +455,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   }
 
   Widget _buildTranscript(Video v) {
+    final yt = ytUrl(v);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -366,6 +466,12 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
             children: [
               Chip(label: Text('${v.wordCount} words')),
               if (v.language != null) Chip(label: Text(v.language!)),
+              if (yt != null)
+                ActionChip(
+                  avatar: const Icon(Icons.smart_display_outlined, size: 16),
+                  label: const Text('Watch on YouTube'),
+                  onPressed: () => _openUrl(yt),
+                ),
               ActionChip(
                 avatar: const Icon(Icons.copy, size: 16),
                 label: const Text('Copy'),
