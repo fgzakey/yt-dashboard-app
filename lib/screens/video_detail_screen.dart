@@ -189,7 +189,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     final yt = ytUrl(v);
 
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Scaffold(
         appBar: AppBar(
           title: Text(v.title ?? v.videoId,
@@ -197,6 +197,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           bottom: const TabBar(isScrollable: true, tabs: [
             Tab(text: 'Chat'),
             Tab(text: 'Chapters'),
+            Tab(text: 'Results'),
             Tab(text: 'Transcript'),
           ]),
           actions: [
@@ -222,6 +223,14 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           children: [
             _buildChat(state, v),
             _buildChapters(state, v),
+            // Past prompt results for THIS video — the global Results
+            // section, scoped, between Chapters and Transcript.
+            PastResultsTab(
+              results: _results,
+              loading: _resultsLoading,
+              error: _resultsError,
+              onRefresh: _loadResults,
+            ),
             _buildTranscript(v),
           ],
         ),
@@ -381,14 +390,6 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   Widget _buildChat(AppState state, Video v) {
     return Column(
       children: [
-        // Past prompt results for THIS video, above the conversation —
-        // same convention as the web dashboard (results first, controls below).
-        PastResultsPanel(
-          results: _results,
-          loading: _resultsLoading,
-          error: _resultsError,
-          onRefresh: _loadResults,
-        ),
         Expanded(
           child: v.chat.isEmpty
               ? const Center(child: Text('Ask anything about this video.'))
