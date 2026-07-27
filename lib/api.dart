@@ -6,7 +6,7 @@ import 'models.dart';
 
 /// Client for the YT Dashboard backend (the Hugging Face Space).
 ///
-/// Auth: the dashboard's middleware accepts a `yt_auth=<password>` cookie, so
+/// Auth: the dashboard's middleware accepts a `book_auth=<password>` cookie, so
 /// after validating the password once via POST /api/login we simply attach
 /// that cookie header to every request — no cookie jar needed.
 class ApiClient {
@@ -24,7 +24,7 @@ class ApiClient {
 
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
-        if (password.isNotEmpty) 'Cookie': 'yt_auth=$password',
+        if (password.isNotEmpty) 'Cookie': 'book_auth=$password',
       };
 
   Never _fail(http.Response res) {
