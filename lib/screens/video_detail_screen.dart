@@ -6,6 +6,7 @@ import '../app_state.dart';
 import '../main.dart';
 import '../md_zoom.dart';
 import '../models.dart';
+import '../md_toc_view.dart';
 
 class VideoDetailScreen extends StatefulWidget {
   final String videoId;
@@ -418,7 +419,7 @@ class _ResultViewer extends StatelessWidget {
           const SizedBox(width: 8),
         ],
       ),
-      body: ZoomMd(data: content, scrollable: true),
+      body: MdWithToc(data: content),
     );
   }
 }

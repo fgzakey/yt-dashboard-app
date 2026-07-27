@@ -20,3 +20,8 @@ test/
 .idea/
 *.iml
 .vscode/
+
+# signing - never commit
+android/key.properties
+*.jks
+*.keystore
