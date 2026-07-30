@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 
 import 'models.dart';
 
-/// Client for the YT Dashboard backend (the Hugging Face Space).
+/// Client for the Phil's Library backend (the Hugging Face Space).
 ///
 /// Auth: the dashboard's middleware accepts a `book_auth=<password>` cookie, so
 /// after validating the password once via POST /api/login we simply attach

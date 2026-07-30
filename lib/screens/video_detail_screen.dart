@@ -236,6 +236,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
               loading: _resultsLoading,
               error: _resultsError,
               onRefresh: _loadResults,
+              sourceTitle: v.title ?? v.videoId,
+              sourceAuthor: v.author,
             ),
             _buildTranscript(v),
           ],
