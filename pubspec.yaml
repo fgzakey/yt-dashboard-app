@@ -1,7 +1,7 @@
 name: yt_dashboard_app
 description: "Android companion app for Phil's Library (videos) — same backend, same database."
 publish_to: "none"
-version: 0.1.0+1
+version: 0.2.0+1
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
