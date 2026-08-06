@@ -79,7 +79,7 @@ class _HomeShellState extends State<HomeShell> {
       });
     }
 
-    final screens = const [
+    const screens = [
       VideosScreen(),
       PromptsScreen(),
       ResultsScreen(),
