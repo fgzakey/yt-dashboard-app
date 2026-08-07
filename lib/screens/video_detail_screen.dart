@@ -317,7 +317,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           child: ListView.separated(
             padding: const EdgeInsets.all(8),
             itemCount: v.chapters.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
+            separatorBuilder: (_, _) => const Divider(height: 1),
             itemBuilder: (context, i) {
               final c = Map<String, dynamic>.from(v.chapters[i] as Map);
               final title = c['title']?.toString() ?? 'Chapter ${i + 1}';

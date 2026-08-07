@@ -104,7 +104,7 @@ class VideosScreen extends StatelessWidget {
           onRefresh: () => state.refreshVideos(),
           child: ListView.separated(
             itemCount: state.videos.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
+            separatorBuilder: (_, _) => const Divider(height: 1),
             itemBuilder: (context, i) {
               final v = state.videos[i];
               return ListTile(

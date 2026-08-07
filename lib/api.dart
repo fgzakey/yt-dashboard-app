@@ -131,7 +131,9 @@ class ApiClient {
   Future<List<SavedResult>> listResults({String query = '', String? videoId}) async {
     final res = await http.get(
         _uri('/api/db/video-results', {
-          if (videoId != null) 'videoId': videoId,
+          // Dart 3.10 null-aware map element: the `?` goes on the VALUE, so
+          // the entry is dropped when videoId is null.
+          'videoId': ?videoId,
           if (query.isNotEmpty) 'q': query,
         }),
         headers: _headers);
