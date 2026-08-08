@@ -64,3 +64,7 @@ flutter create --platforms=android --org com.fidelkey --project-name yt_dashboar
 flutter pub get
 flutter run
 ```
+
+## Developing
+
+Start with [AGENTS.md](AGENTS.md) — project conventions and institutional knowledge, shared by humans and every coding harness (Claude Code reads it through CLAUDE.md; Codex and Hermes read it natively). Then see [CONTRIBUTING.md](CONTRIBUTING.md) for setup and the PR flow.
