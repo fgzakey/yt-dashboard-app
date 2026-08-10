@@ -1,7 +1,7 @@
 name: yt_dashboard_app
 description: "Android companion app for Phil's Library (videos) — same backend, same database."
 publish_to: "none"
-version: 0.2.0+1
+version: 1.0.0+2
 
 environment:
   # share_plus 13 requires Dart >=3.10 (and Flutter >=3.38.1), so the app can no
