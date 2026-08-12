@@ -8,6 +8,7 @@ import '../main.dart';
 import '../md_zoom.dart';
 import '../models.dart';
 import '../md_toc_view.dart';
+import '../yt_links.dart';
 import 'past_results.dart';
 
 class VideoDetailScreen extends StatefulWidget {
@@ -212,6 +213,12 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                 tooltip: 'Watch on YouTube',
                 icon: const Icon(Icons.smart_display_outlined),
                 onPressed: () => _openUrl(yt),
+              ),
+            if (hasYouTubeSource(v))
+              IconButton(
+                tooltip: 'Download in the YouTube app',
+                icon: const Icon(Icons.download_for_offline_outlined),
+                onPressed: () => openInYouTubeApp(context, v),
               ),
             const TextSizeButtons(),
             IconButton(

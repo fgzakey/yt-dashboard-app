@@ -1,0 +1,68 @@
+name: Build Web bundle
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Artifact-only on purpose. build-apk.yml already publishes to the `latest`
+# release tag on every push to main; a second workflow writing that same tag
+# concurrently would race it. Grab the bundle from the run's artifacts.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      # Same trick as build-apk.yml: the repo ships only pubspec.yaml + lib/,
+      # so the platform folder is generated here. `flutter create` rewrites
+      # pubspec.yaml, hence the copy-aside.
+      - name: Generate web scaffolding
+        run: |
+          cp pubspec.yaml /tmp/pubspec.yaml
+          flutter create --platforms=web --org com.fidelkey --project-name yt_dashboard_app .
+          cp /tmp/pubspec.yaml pubspec.yaml
+
+      # flutter create leaves the project name in the manifest and title; patch
+      # it so the PWA installs to a home screen with a real name.
+      - name: Patch web manifest + title
+        run: |
+          jq '.name = "YT Dashboard"
+              | .short_name = "YT Dash"
+              | .description = "Phil'\''s Library — videos"
+              | .display = "standalone"' \
+            web/manifest.json > /tmp/manifest.json
+          mv /tmp/manifest.json web/manifest.json
+          sed -i 's#<title>yt_dashboard_app</title>#<title>YT Dashboard</title>#' web/index.html
+          sed -i 's#content="yt_dashboard_app"#content="YT Dashboard"#' web/index.html
+
+      - name: Compute version
+        id: ver
+        run: |
+          NAME=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
+          echo "full=v$NAME-b${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+      # --base-href MUST match the sub-path the bundle is served from, or every
+      # asset request 404s. Root here; change it if you host under a folder.
+      - name: Build web
+        run: |
+          flutter pub get
+          flutter build web --release \
+            --base-href / \
+            --build-name=${{ steps.ver.outputs.name }} \
+            --build-number=${{ github.run_number }}
+
+      - name: Upload web bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: yt-dashboard-web-${{ steps.ver.outputs.full }}
+          path: build/web

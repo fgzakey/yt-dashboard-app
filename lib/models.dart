@@ -11,7 +11,13 @@ class Video {
   List<dynamic> segments;
   List<ChatMessage> chat;
   List<dynamic> chapters;
-  int? savedAt; // epoch ms
+  int? savedAt; // epoch ms — `updated_at`, i.e. LAST MODIFIED, not last opened
+  // Library sort keys, all epoch ms and all nullable: null means the event never
+  // happened (never opened, never extracted), which is different from "long ago"
+  // and is what puts a row in the tail of a sorted list rather than at 1970.
+  int? addedAt; // `created_at`
+  int? openedAt; // `last_opened_at`, written only by touchVideo
+  int? extractedAt; // MAX(results.created_at) for this video
 
   Video({
     required this.videoId,
@@ -25,6 +31,9 @@ class Video {
     List<ChatMessage>? chat,
     List<dynamic>? chapters,
     this.savedAt,
+    this.addedAt,
+    this.openedAt,
+    this.extractedAt,
   })  : segments = segments ?? [],
         chat = chat ?? [],
         chapters = chapters ?? [];
@@ -43,6 +52,9 @@ class Video {
             .toList(),
         chapters: (j['chapters'] as List?) ?? [],
         savedAt: (j['savedAt'] as num?)?.toInt(),
+        addedAt: (j['addedAt'] as num?)?.toInt(),
+        openedAt: (j['openedAt'] as num?)?.toInt(),
+        extractedAt: (j['extractedAt'] as num?)?.toInt(),
       );
 
   Map<String, dynamic> toJson() => {

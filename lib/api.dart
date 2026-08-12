@@ -88,6 +88,17 @@ class ApiClient {
     _json(res);
   }
 
+  /// Stamps `last_opened_at` and nothing else. Deliberately NOT a saveVideo:
+  /// an upsert would also bump `updated_at`, so merely opening a video would
+  /// reorder every "last modified" list in the web dashboard and both siblings.
+  /// Returns the new timestamp (epoch ms), or null if the server didn't say.
+  Future<int?> touchVideo(String videoId) async {
+    final res = await http.patch(_uri('/api/db/videos', {'touch': videoId}),
+        headers: _headers);
+    final j = _json(res);
+    return (j['openedAt'] as num?)?.toInt();
+  }
+
   // ---- Prompts ----
 
   Future<List<PromptTemplate>> listPrompts() async {

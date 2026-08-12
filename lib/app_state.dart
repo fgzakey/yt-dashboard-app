@@ -31,6 +31,33 @@ Map<String, dynamic>? _looseJson(String? content) {
 // The YT dashboard was merged into the book dashboard; the old space is gone.
 const String kDefaultServerUrl = 'https://fgza-book-dashboard.hf.space';
 
+/// Video-list orderings, mirroring the web dashboard's `LIBRARY_SORTS` in
+/// `phils-library/app/library-search.js`. Keep the two lists in step.
+///
+/// [savedAt] stays the default because it is what the list has always done —
+/// shipping a sort control must not silently reshuffle the library. Note it is
+/// `updated_at`, bumped by ANY write (a chat reply, a scribe board), so it means
+/// "last modified"; [opened] is the separate `last_opened_at`, written only when
+/// a video is opened for reading.
+enum VideoSort { savedAt, opened, added, extracted }
+
+extension VideoSortLabel on VideoSort {
+  String get label => switch (this) {
+        VideoSort.savedAt => 'Last modified',
+        VideoSort.opened => 'Last accessed',
+        VideoSort.added => 'Date added',
+        VideoSort.extracted => 'Last extracted',
+      };
+
+  /// The epoch-ms key this ordering sorts by. Null = the event never happened.
+  int? keyOf(Video v) => switch (this) {
+        VideoSort.savedAt => v.savedAt,
+        VideoSort.opened => v.openedAt,
+        VideoSort.added => v.addedAt,
+        VideoSort.extracted => v.extractedAt,
+      };
+}
+
 class AppState extends ChangeNotifier {
   final ApiClient api = ApiClient();
 
@@ -52,6 +79,13 @@ class AppState extends ChangeNotifier {
 
   bool loadingVideos = false;
   String? videosError;
+
+  // ---- Video list search + sort ----
+  // The query is deliberately NOT persisted (same reasoning as the web app: a
+  // forgotten filter surviving a restart looks exactly like a library that lost
+  // rows). The sort IS persisted — it is visible in the control itself.
+  String videoQuery = '';
+  VideoSort videoSort = VideoSort.savedAt;
   bool loadingEssays = false;
   String? essaysError;
 
@@ -63,6 +97,11 @@ class AppState extends ChangeNotifier {
     model = p.getString('model') ?? model;
     temperature = p.getDouble('temperature') ?? 0.4;
     mdScale = p.getDouble('mdScale') ?? 1.0;
+    final savedSort = p.getString('videoSort');
+    if (savedSort != null) {
+      videoSort = VideoSort.values.firstWhere((s) => s.name == savedSort,
+          orElse: () => VideoSort.savedAt);
+    }
     loadedPrefs = true;
     notifyListeners();
   }
@@ -118,6 +157,92 @@ class AppState extends ChangeNotifier {
   }
 
   // ---- Videos ----
+
+  void setVideoQuery(String q) {
+    videoQuery = q;
+    notifyListeners();
+  }
+
+  Future<void> setVideoSort(VideoSort s) async {
+    videoSort = s;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setString('videoSort', s.name);
+  }
+
+  /// The list the videos screen actually renders: [videos] filtered by
+  /// [videoQuery] and ordered by [videoSort].
+  ///
+  /// Matching mirrors the web dashboard's `useLibrarySearch`: multi-token AND
+  /// over title + author, case-folded AND accent-stripped. Accent folding is not
+  /// optional here — the library is bilingual ES/EN and nobody types
+  /// "Filosofía" with the accent into a search box, so a plain lowercase
+  /// `contains` would silently miss half the Spanish shelf.
+  List<Video> get visibleVideos {
+    final tokens = _fold(videoQuery).split(RegExp(r'\s+')).where((t) => t.isNotEmpty);
+    final matched = tokens.isEmpty
+        ? List<Video>.from(videos)
+        : videos.where((v) {
+            final hay = _fold([v.title, v.author].whereType<String>().join(' · '));
+            return tokens.every(hay.contains);
+          }).toList();
+
+    matched.sort((a, b) {
+      final av = videoSort.keyOf(a);
+      final bv = videoSort.keyOf(b);
+      // A video never opened / never extracted has no value at all. It sorts to
+      // the BOTTOM rather than to 1970, so "last accessed" reads as "what I've
+      // watched, newest first" and the untouched tail keeps a sane order of its
+      // own instead of an arbitrary one.
+      if (av == null && bv == null) return (b.savedAt ?? 0).compareTo(a.savedAt ?? 0);
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return bv.compareTo(av);
+    });
+    return matched;
+  }
+
+  // Dart's core library has no Unicode normalisation (no NFD), so the web app's
+  // "decompose then strip the combining marks" trick is not available here. An
+  // explicit map of the Latin-1/Latin-Extended letters that actually occur in an
+  // ES/EN library does the same job with no dependency.
+  static const Map<String, String> _foldMap = {
+    'á': 'a', 'à': 'a', 'ä': 'a', 'â': 'a', 'ã': 'a', 'å': 'a',
+    'é': 'e', 'è': 'e', 'ë': 'e', 'ê': 'e',
+    'í': 'i', 'ì': 'i', 'ï': 'i', 'î': 'i',
+    'ó': 'o', 'ò': 'o', 'ö': 'o', 'ô': 'o', 'õ': 'o',
+    'ú': 'u', 'ù': 'u', 'ü': 'u', 'û': 'u',
+    'ñ': 'n', 'ç': 'c', 'ý': 'y', 'ÿ': 'y',
+  };
+  static final _foldRe = RegExp('[${_foldMap.keys.join()}]');
+
+  static String _fold(String s) => s
+      .toLowerCase()
+      .replaceAllMapped(_foldRe, (m) => _foldMap[m.group(0)] ?? m.group(0)!);
+
+  /// Stamp "last accessed" when a video is opened. Fire-and-forget: it is a
+  /// sort key, not data, so a failed touch must never block opening the video.
+  /// The local row is patched optimistically so an "opened"-sorted list
+  /// reorders at once instead of waiting for the next refresh.
+  Future<void> touchVideo(String videoId) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final i = videos.indexWhere((v) => v.videoId == videoId);
+    if (i >= 0) {
+      videos[i].openedAt = now;
+      notifyListeners();
+    }
+    try {
+      // Prefer the server's clock over the device's, so this row sorts against
+      // rows stamped by the web dashboard on the same timeline.
+      final serverMs = await api.touchVideo(videoId);
+      if (serverMs != null && i >= 0) {
+        videos[i].openedAt = serverMs;
+        notifyListeners();
+      }
+    } catch (_) {
+      // Older servers have no PATCH branch; the local stamp still stands.
+    }
+  }
 
   Future<void> refreshVideos() async {
     loadingVideos = true;

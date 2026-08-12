@@ -1,8 +1,7 @@
-import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../main.dart';
@@ -20,8 +19,8 @@ Map<String, dynamic> resultRow(SavedResult r) => {
       'content': r.content,
     };
 
-/// Write a packaged .md to a temp file and hand it to the share sheet — the
-/// app's equivalent of the dashboard's download button.
+/// Package a .md and hand it to the share sheet — the app's equivalent of the
+/// dashboard's download button.
 Future<void> shareMarkdown(
     BuildContext context, String markdown, String filename) async {
   // iPad share-sheet anchor, read before any await: touching the BuildContext
@@ -29,13 +28,23 @@ Future<void> shareMarkdown(
   final box = context.findRenderObject() as RenderBox?;
   final origin = box == null ? null : box.localToGlobal(Offset.zero) & box.size;
   try {
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/$filename');
-    await file.writeAsString(markdown);
+    // Held in memory rather than written to a temp file: `dart:io` and
+    // path_provider do not exist in a browser, so a temp-file export would not
+    // even COMPILE for web. XFile.fromData is the one path that serves both
+    // Android and web — on web share_plus falls back to a browser download
+    // when the Web Share API can't take files.
     // share_plus 13 replaced the static Share.shareXFiles() with
-    // SharePlus.instance.share(ShareParams(...)).
+    // SharePlus.instance.share(ShareParams(...)); `fileNameOverrides` is what
+    // preserves the filename, since in-memory data carries no path to infer.
     await SharePlus.instance.share(ShareParams(
-      files: [XFile(file.path, mimeType: 'text/markdown')],
+      files: [
+        XFile.fromData(
+          utf8.encode(markdown),
+          mimeType: 'text/markdown',
+          name: filename,
+        ),
+      ],
+      fileNameOverrides: [filename],
       subject: filename,
       sharePositionOrigin: origin,
     ));
