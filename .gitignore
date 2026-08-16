@@ -25,3 +25,10 @@ test/
 android/key.properties
 *.jks
 *.keystore
+.env
+!.env.example
+!*.sops.*
+/output/
+*.pem
+*.key
+.claude/settings.local.json
