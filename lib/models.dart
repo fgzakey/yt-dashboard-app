@@ -265,3 +265,205 @@ class Essay {
         updatedAt: j['updated_at']?.toString(),
       );
 }
+
+// ---- Workspaces / Multi-user databases ----
+
+class WorkspaceInfo {
+  final String? owner; // null for canon
+  final String name;
+  final String kind; // canon | fork | clean | external
+  final String label;
+  final bool isCanon;
+  final bool active;
+  final bool mine;
+  final bool canWrite;
+  final bool canDelete;
+  final int books;
+  final int videos;
+  final int results;
+  final int boards;
+  final int scenes;
+
+  WorkspaceInfo({
+    this.owner,
+    required this.name,
+    this.kind = 'fork',
+    required this.label,
+    this.isCanon = false,
+    this.active = false,
+    this.mine = true,
+    this.canWrite = true,
+    this.canDelete = false,
+    this.books = 0,
+    this.videos = 0,
+    this.results = 0,
+    this.boards = 0,
+    this.scenes = 0,
+  });
+
+  factory WorkspaceInfo.fromJson(Map<String, dynamic> j) => WorkspaceInfo(
+        owner: j['owner'] as String?,
+        name: j['name']?.toString() ?? 'canon',
+        kind: j['kind']?.toString() ?? 'canon',
+        label: j['label']?.toString() ?? (j['name']?.toString() ?? 'canon'),
+        isCanon: j['isCanon'] as bool? ?? (j['kind'] == 'canon'),
+        active: j['active'] as bool? ?? false,
+        mine: j['mine'] as bool? ?? true,
+        canWrite: j['canWrite'] as bool? ?? true,
+        canDelete: j['canDelete'] as bool? ?? false,
+        books: (j['books'] as num?)?.toInt() ?? 0,
+        videos: (j['videos'] as num?)?.toInt() ?? 0,
+        results: (j['results'] as num?)?.toInt() ?? 0,
+        boards: (j['boards'] as num?)?.toInt() ?? 0,
+        scenes: (j['scenes'] as num?)?.toInt() ?? 0,
+      );
+}
+
+class WorkspacesResponse {
+  final String member;
+  final bool admin;
+  final WorkspaceInfo? active;
+  final List<WorkspaceInfo> workspaces;
+
+  WorkspacesResponse({
+    this.member = 'admin',
+    this.admin = true,
+    this.active,
+    this.workspaces = const [],
+  });
+
+  factory WorkspacesResponse.fromJson(Map<String, dynamic> j) => WorkspacesResponse(
+        member: j['member']?.toString() ?? 'admin',
+        admin: j['admin'] as bool? ?? false,
+        active: j['active'] is Map
+            ? WorkspaceInfo.fromJson(Map<String, dynamic>.from(j['active']))
+            : null,
+        workspaces: ((j['workspaces'] as List?) ?? [])
+            .map((w) => WorkspaceInfo.fromJson(Map<String, dynamic>.from(w)))
+            .toList(),
+      );
+}
+
+// ---- Mnemonic scenes ----
+
+class MnemonicSource {
+  final String sourceKind; // book | video
+  final String sourceId;
+  final String sourceTitle;
+  final int imageCount;
+  final int boardCount;
+  final String? latest;
+
+  MnemonicSource({
+    required this.sourceKind,
+    required this.sourceId,
+    required this.sourceTitle,
+    this.imageCount = 0,
+    this.boardCount = 0,
+    this.latest,
+  });
+
+  factory MnemonicSource.fromJson(Map<String, dynamic> j) => MnemonicSource(
+        sourceKind: j['source_kind']?.toString() ?? 'video',
+        sourceId: j['source_id']?.toString() ?? '',
+        sourceTitle: j['source_title']?.toString() ?? '(untitled source)',
+        imageCount: (j['image_count'] as num?)?.toInt() ?? 0,
+        boardCount: (j['board_count'] as num?)?.toInt() ?? 0,
+        latest: j['latest']?.toString(),
+      );
+}
+
+class MnemonicHotspot {
+  final int i;
+  final String heading;
+  final String theme;
+  final String colorHex;
+  final List<String> points;
+  final double? x;
+  final double? y;
+  final String placed; // vision | legend
+
+  MnemonicHotspot({
+    required this.i,
+    required this.heading,
+    this.theme = '',
+    this.colorHex = '',
+    this.points = const [],
+    this.x,
+    this.y,
+    this.placed = 'legend',
+  });
+
+  factory MnemonicHotspot.fromJson(Map<String, dynamic> j) => MnemonicHotspot(
+        i: (j['i'] as num?)?.toInt() ?? 0,
+        heading: j['heading']?.toString() ?? '',
+        theme: j['theme']?.toString() ?? '',
+        colorHex: j['color']?.toString() ?? '',
+        points: ((j['points'] as List?) ?? []).map((p) => p.toString()).toList(),
+        x: (j['x'] as num?)?.toDouble(),
+        y: (j['y'] as num?)?.toDouble(),
+        placed: j['placed']?.toString() ?? 'legend',
+      );
+}
+
+class MnemonicScene {
+  final dynamic id;
+  final String sourceKind;
+  final String sourceId;
+  final String sourceTitle;
+  final String boardKey;
+  final String variant;
+  final String? style;
+  final String? styleName;
+  final String? model;
+  final int? width;
+  final int? height;
+  final String? sourceResolution;
+  final List<MnemonicHotspot> hotspots;
+  final String? createdAt;
+  final int imageChars;
+  final String? image; // data URL, only on single-row fetch
+
+  MnemonicScene({
+    this.id,
+    required this.sourceKind,
+    required this.sourceId,
+    required this.sourceTitle,
+    required this.boardKey,
+    this.variant = 'clean',
+    this.style,
+    this.styleName,
+    this.model,
+    this.width,
+    this.height,
+    this.sourceResolution,
+    this.hotspots = const [],
+    this.createdAt,
+    this.imageChars = 0,
+    this.image,
+  });
+
+  factory MnemonicScene.fromJson(Map<String, dynamic> j) {
+    final image = j['image']?.toString();
+    return MnemonicScene(
+      id: j['id'],
+      sourceKind: j['source_kind']?.toString() ?? 'video',
+      sourceId: j['source_id']?.toString() ?? '',
+      sourceTitle: j['source_title']?.toString() ?? '(untitled source)',
+      boardKey: j['board_key']?.toString() ?? '',
+      variant: j['variant']?.toString() ?? 'clean',
+      style: j['style']?.toString(),
+      styleName: j['style_name']?.toString(),
+      model: j['model']?.toString(),
+      width: (j['width'] as num?)?.toInt(),
+      height: (j['height'] as num?)?.toInt(),
+      sourceResolution: j['source_resolution']?.toString(),
+      hotspots: ((j['hotspots'] as List?) ?? [])
+          .map((h) => MnemonicHotspot.fromJson(Map<String, dynamic>.from(h)))
+          .toList(),
+      createdAt: j['created_at']?.toString(),
+      imageChars: (j['image_chars'] as num?)?.toInt() ?? image?.length ?? 0,
+      image: image,
+    );
+  }
+}

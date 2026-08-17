@@ -89,6 +89,11 @@ class AppState extends ChangeNotifier {
   bool loadingEssays = false;
   String? essaysError;
 
+  // ---- Workspaces / Databases ----
+  WorkspacesResponse? workspacesResponse;
+  WorkspaceInfo? activeWorkspace;
+  bool loadingWorkspaces = false;
+
   Future<void> loadPrefs() async {
     final p = await SharedPreferences.getInstance();
     final savedUrl = p.getString('baseUrl');
@@ -397,5 +402,32 @@ class AppState extends ChangeNotifier {
       ],
       temperature: temperature,
     );
+  }
+
+  // ---- Workspaces / Databases ----
+
+  Future<void> refreshWorkspaces() async {
+    if (!api.configured) return;
+    loadingWorkspaces = true;
+    notifyListeners();
+    try {
+      final resp = await api.listWorkspaces();
+      workspacesResponse = resp;
+      activeWorkspace = resp.active ??
+          resp.workspaces.cast<WorkspaceInfo?>().firstWhere(
+                (w) => w?.active == true,
+                orElse: () => resp.workspaces.isNotEmpty ? resp.workspaces.first : null,
+              );
+    } catch (_) {}
+    loadingWorkspaces = false;
+    notifyListeners();
+  }
+
+  Future<void> switchWorkspace(WorkspaceInfo w) async {
+    await api.switchWorkspace(w.name, owner: w.owner);
+    await refreshWorkspaces();
+    await refreshVideos();
+    refreshPrompts();
+    refreshEssays();
   }
 }

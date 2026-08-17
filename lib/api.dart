@@ -216,6 +216,47 @@ class ApiClient {
       usage: j['usage'] == null ? null : Map<String, dynamic>.from(j['usage']),
     );
   }
+
+  // ---- Workspaces / Databases ----
+
+  Future<WorkspacesResponse> listWorkspaces() async {
+    final res = await http.get(_uri('/api/db/workspaces'), headers: _headers);
+    return WorkspacesResponse.fromJson(_json(res));
+  }
+
+  Future<void> switchWorkspace(String name, {String? owner}) async {
+    final res = await http.post(_uri('/api/db/workspaces'),
+        headers: _headers,
+        body: jsonEncode({
+          'action': 'switch',
+          'name': name,
+          'owner': ?owner,
+        }));
+    _json(res);
+  }
+
+  // ---- Mnemonic scenes ----
+
+  Future<List<MnemonicScene>> listMnemonicScenes(
+      String sourceKind, String sourceId) async {
+    final res = await http.get(
+        _uri('/api/mnemonic', {'sourceKind': sourceKind, 'sourceId': sourceId}),
+        headers: _headers);
+    final j = _json(res);
+    return ((j['images'] as List?) ?? [])
+        .map((m) => MnemonicScene.fromJson(Map<String, dynamic>.from(m)))
+        .toList();
+  }
+
+  Future<MnemonicScene> getMnemonicScene(dynamic id) async {
+    final res = await http
+        .get(_uri('/api/mnemonic', {'id': '$id'}), headers: _headers)
+        .timeout(const Duration(minutes: 3));
+    final j = _json(res);
+    final row = j['image'];
+    if (row == null) throw ApiException('Scene not found.', 404);
+    return MnemonicScene.fromJson(Map<String, dynamic>.from(row));
+  }
 }
 
 class ApiException implements Exception {

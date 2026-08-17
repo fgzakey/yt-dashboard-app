@@ -24,6 +24,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final state = context.read<AppState>();
     _url = TextEditingController(text: state.api.baseUrl);
     _password = TextEditingController(text: state.api.password);
+    if (state.api.configured && state.workspacesResponse == null) {
+      Future.microtask(() => state.refreshWorkspaces());
+    }
   }
 
   @override
@@ -43,6 +46,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await state.refreshVideos();
       state.refreshPrompts();
       state.refreshModels();
+      state.refreshWorkspaces();
       if (mounted) showSnack(context, 'Connected ✓');
     } catch (e) {
       if (mounted) showSnack(context, 'Connection failed: $e');
@@ -106,9 +110,78 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (picked != null) await state.setModel(picked.id);
   }
 
+  Future<void> _pickWorkspace() async {
+    final state = context.read<AppState>();
+    if (state.workspacesResponse == null) await state.refreshWorkspaces();
+    if (!mounted) return;
+    final resp = state.workspacesResponse;
+    if (resp == null || resp.workspaces.isEmpty) {
+      showSnack(context, 'No workspaces found.');
+      return;
+    }
+
+    final picked = await showModalBottomSheet<WorkspaceInfo>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => SizedBox(
+        height: MediaQuery.of(ctx).size.height * 0.6,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(
+                'Select Workspace / Database',
+                style: Theme.of(ctx).textTheme.titleMedium,
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                itemCount: resp.workspaces.length,
+                itemBuilder: (ctx, i) {
+                  final w = resp.workspaces[i];
+                  final isCurrent = w.active ||
+                      (state.activeWorkspace?.name == w.name &&
+                          state.activeWorkspace?.owner == w.owner);
+                  final subtitle = [
+                    w.kind,
+                    if (w.books > 0) '${w.books} books',
+                    if (w.videos > 0) '${w.videos} videos',
+                  ].join(' · ');
+
+                  return ListTile(
+                    leading: Icon(w.isCanon ? Icons.verified : Icons.folder_open),
+                    title: Text(w.label),
+                    subtitle: Text(subtitle),
+                    selected: isCurrent,
+                    trailing: isCurrent
+                        ? const Icon(Icons.check, color: Colors.green)
+                        : null,
+                    onTap: () => Navigator.pop(ctx, w),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (picked != null && mounted) {
+      try {
+        await state.switchWorkspace(picked);
+        if (mounted) showSnack(context, 'Switched to ${picked.label}');
+      } catch (e) {
+        if (mounted) showSnack(context, 'Failed to switch workspace: $e');
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    final activeWs = state.activeWorkspace?.label ?? 'Canon (default)';
 
     final body = ListView(
       padding: const EdgeInsets.all(16),
@@ -137,7 +210,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           obscureText: true,
           decoration: const InputDecoration(
             labelText: 'App password',
-            helperText: 'Same password as the web login (APP_PASSWORD).',
+            helperText: 'Same password as the web login (APP_PASSWORD or member login).',
             border: OutlineInputBorder(),
           ),
         ),
@@ -154,10 +227,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const Divider(height: 40),
         ListTile(
           contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.storage_outlined),
+          title: const Text('Workspace / Database'),
+          subtitle: Text(activeWs),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: _pickWorkspace,
+        ),
+        const SizedBox(height: 8),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.psychology_outlined),
           title: const Text('Model'),
           subtitle: Text(state.model),
           trailing: const Icon(Icons.chevron_right),
           onTap: _pickModel,
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+                child: Text(
+                    'Text size: ${(state.mdScale * 100).round()}%')),
+            const TextSizeButtons(),
+          ],
         ),
         const SizedBox(height: 8),
         Text('Temperature: ${state.temperature.toStringAsFixed(1)}'),
