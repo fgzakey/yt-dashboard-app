@@ -13,7 +13,18 @@ class ApiClient {
   String baseUrl; // e.g. https://<user>-<space>.hf.space  (no trailing slash)
   String password;
 
-  ApiClient({this.baseUrl = '', this.password = ''});
+  /// Optional OpenRouter key.
+  String apiKey;
+
+  /// Optional Google Gemini API key.
+  String geminiApiKey;
+
+  ApiClient({
+    this.baseUrl = '',
+    this.password = '',
+    this.apiKey = '',
+    this.geminiApiKey = '',
+  });
 
   // The server URL ships prefilled, so "configured" means the password has
   // been entered too — first run lands on Settings asking only for it.
@@ -207,6 +218,8 @@ class ApiClient {
               'model': model,
               'messages': messages,
               'temperature': temperature,
+              if (apiKey.isNotEmpty) 'apiKey': apiKey,
+              if (geminiApiKey.isNotEmpty) 'geminiApiKey': geminiApiKey,
             }))
         .timeout(const Duration(minutes: 5));
     final j = _json(res);
@@ -236,6 +249,15 @@ class ApiClient {
   }
 
   // ---- Mnemonic scenes ----
+
+  Future<List<MnemonicSource>> listMnemonicSources() async {
+    final res = await http.get(_uri('/api/mnemonic', {'sources': '1'}),
+        headers: _headers);
+    final j = _json(res);
+    return ((j['sources'] as List?) ?? [])
+        .map((s) => MnemonicSource.fromJson(Map<String, dynamic>.from(s)))
+        .toList();
+  }
 
   Future<List<MnemonicScene>> listMnemonicScenes(
       String sourceKind, String sourceId) async {
