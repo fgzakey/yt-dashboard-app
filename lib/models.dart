@@ -98,6 +98,25 @@ class Video {
     if (maxChars != null && out.length > maxChars) out = out.substring(0, maxChars);
     return out;
   }
+
+  /// Formatted transcript with [seconds] timestamp markers for chapterization.
+  String get timedTranscript {
+    final timed = segments.any((s) => (s as Map)['start'] != null);
+    if (!timed) return text;
+    final buf = StringBuffer();
+    for (final s in segments) {
+      if (s is! Map) continue;
+      final start = s['start'];
+      final t = (s['text'] ?? '').toString().trim();
+      if (t.isEmpty) continue;
+      if (start is num) {
+        buf.writeln('[${start.toInt()}] $t');
+      } else {
+        buf.writeln(t);
+      }
+    }
+    return buf.toString();
+  }
 }
 
 class ChatMessage {
@@ -168,6 +187,8 @@ class SavedResult {
   final String? model;
   final String? cost;
   final String? createdAt;
+  final bool hasAudio;
+  final String? audio;
 
   SavedResult({
     this.id,
@@ -178,6 +199,8 @@ class SavedResult {
     this.model,
     this.cost,
     this.createdAt,
+    this.hasAudio = false,
+    this.audio,
   });
 
   factory SavedResult.fromJson(Map<String, dynamic> j) => SavedResult(
@@ -189,6 +212,102 @@ class SavedResult {
         model: j['model'] as String?,
         cost: j['cost']?.toString(),
         createdAt: j['created_at']?.toString(),
+        hasAudio: j['has_audio'] == true ||
+            (j['audio'] as String?)?.isNotEmpty == true,
+        audio: j['audio'] as String?,
+      );
+}
+
+enum PlaylistProcessMode {
+  none,
+  chapters,
+  full;
+
+  String get label => switch (this) {
+        PlaylistProcessMode.none => 'Transcripts only',
+        PlaylistProcessMode.chapters => 'Chapters & Summaries',
+        PlaylistProcessMode.full => 'Full (Chapters + Prompts)',
+      };
+}
+
+class PlaylistVideoItem {
+  final String videoId;
+  final String title;
+  final String? author;
+  final int? lengthSeconds;
+
+  PlaylistVideoItem({
+    required this.videoId,
+    required this.title,
+    this.author,
+    this.lengthSeconds,
+  });
+
+  factory PlaylistVideoItem.fromJson(Map<String, dynamic> j) =>
+      PlaylistVideoItem(
+        videoId: j['videoId']?.toString() ?? '',
+        title: j['title']?.toString() ?? '',
+        author: j['author']?.toString(),
+        lengthSeconds: (j['lengthSeconds'] as num?)?.toInt(),
+      );
+}
+
+class PlaylistInfo {
+  final String playlistId;
+  final String title;
+  final String? owner;
+  final String? via;
+  final int total;
+  final List<PlaylistVideoItem> videos;
+
+  PlaylistInfo({
+    required this.playlistId,
+    required this.title,
+    this.owner,
+    this.via,
+    required this.total,
+    required this.videos,
+  });
+
+  factory PlaylistInfo.fromJson(Map<String, dynamic> j) => PlaylistInfo(
+        playlistId: j['playlistId']?.toString() ?? '',
+        title: j['title']?.toString() ?? 'Playlist',
+        owner: j['owner']?.toString(),
+        via: j['via']?.toString(),
+        total: (j['total'] as num?)?.toInt() ??
+            ((j['videos'] as List?)?.length ?? 0),
+        videos: ((j['videos'] as List?) ?? [])
+            .map((v) => PlaylistVideoItem.fromJson(Map<String, dynamic>.from(v)))
+            .toList(),
+      );
+}
+
+class PlaylistRowStatus {
+  final String videoId;
+  final String title;
+  final String outcome; // working, saved, skipped, failed
+  final String? message;
+  final int? words;
+
+  PlaylistRowStatus({
+    required this.videoId,
+    required this.title,
+    required this.outcome,
+    this.message,
+    this.words,
+  });
+
+  PlaylistRowStatus copyWith({
+    String? outcome,
+    String? message,
+    int? words,
+  }) =>
+      PlaylistRowStatus(
+        videoId: videoId,
+        title: title,
+        outcome: outcome ?? this.outcome,
+        message: message ?? this.message,
+        words: words ?? this.words,
       );
 }
 

@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../main.dart';
 import '../models.dart';
 import '../yt_links.dart';
+import 'playlist_import_sheet.dart';
 import 'video_detail_screen.dart';
 
 /// Short label for the value the list is CURRENTLY ordered by, so a row's
@@ -67,6 +68,18 @@ class _VideosScreenState extends State<VideosScreen> {
     super.dispose();
   }
 
+  void _openPlaylistImport(BuildContext context, {String? initialUrl}) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => PlaylistImportSheet(initialUrl: initialUrl),
+    );
+  }
+
   Future<void> _addVideo(BuildContext context) async {
     final state = context.read<AppState>();
     final controller = TextEditingController();
@@ -78,7 +91,7 @@ class _VideosScreenState extends State<VideosScreen> {
           controller: controller,
           autofocus: true,
           decoration: const InputDecoration(
-            hintText: 'YouTube URL or video ID',
+            hintText: 'YouTube URL, video ID, or playlist',
           ),
           onSubmitted: (v) => Navigator.pop(ctx, v),
         ),
@@ -92,6 +105,17 @@ class _VideosScreenState extends State<VideosScreen> {
       ),
     );
     if (url == null || url.trim().isEmpty || !context.mounted) return;
+
+    final trimmed = url.trim();
+    // If user entered a playlist link, seamlessly route to the playlist importer
+    if (trimmed.contains('playlist?list=') ||
+        trimmed.contains('&list=') ||
+        trimmed.startsWith('PL') ||
+        trimmed.startsWith('UU') ||
+        trimmed.startsWith('FL')) {
+      _openPlaylistImport(context, initialUrl: trimmed);
+      return;
+    }
 
     showDialog(
       context: context,
@@ -107,7 +131,7 @@ class _VideosScreenState extends State<VideosScreen> {
       ),
     );
     try {
-      final v = await state.addVideoFromUrl(url.trim());
+      final v = await state.addVideoFromUrl(trimmed);
       if (!context.mounted) return;
       Navigator.pop(context); // close progress dialog
       Navigator.push(
@@ -139,6 +163,11 @@ class _VideosScreenState extends State<VideosScreen> {
                 ? 'Videos (${shown.length} / ${state.videos.length})'
                 : 'Videos (${state.videos.length})'),
         actions: [
+          IconButton(
+            tooltip: 'Import playlist',
+            icon: const Icon(Icons.playlist_play),
+            onPressed: () => _openPlaylistImport(context),
+          ),
           PopupMenuButton<VideoSort>(
             icon: const Icon(Icons.sort),
             tooltip: 'Order by',

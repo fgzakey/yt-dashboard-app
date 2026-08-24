@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -75,6 +76,79 @@ class ApiClient {
     final j = _json(res);
     if (j['error'] != null) throw ApiException(j['error'].toString(), res.statusCode);
     return Video.fromJson(j);
+  }
+
+  // ---- Playlist ----
+
+  Future<PlaylistInfo> expandPlaylist(String url, {int limit = 0}) async {
+    final res = await http.get(
+      _uri('/api/playlist', {
+        'url': url,
+        if (limit > 0) 'limit': '$limit',
+      }),
+      headers: _headers,
+    );
+    final j = _json(res);
+    if (j['error'] != null) {
+      throw ApiException(j['error'].toString(), res.statusCode);
+    }
+    return PlaylistInfo.fromJson(j);
+  }
+
+  Stream<Map<String, dynamic>> streamPlaylistImport(
+    String url, {
+    String? lang,
+    String method = 'auto',
+    bool replace = false,
+    bool allowTruncated = false,
+    int limit = 0,
+  }) async* {
+    final client = http.Client();
+    try {
+      final request = http.Request(
+        'GET',
+        _uri('/api/playlist', {
+          'url': url,
+          'stream': '1',
+          if (lang != null && lang.isNotEmpty) 'lang': lang,
+          'method': method,
+          if (replace) 'replace': '1',
+          if (allowTruncated) 'allowTruncated': '1',
+          if (limit > 0) 'limit': '$limit',
+        }),
+      );
+      request.headers.addAll(_headers);
+      final streamedRes = await client.send(request);
+      if (streamedRes.statusCode != 200) {
+        final body = await streamedRes.stream.bytesToString();
+        throw ApiException(
+            'Playlist import failed ($body)', streamedRes.statusCode);
+      }
+
+      var buffer = '';
+      await for (final chunk in streamedRes.stream.transform(utf8.decoder)) {
+        buffer += chunk;
+        final lines = buffer.split('\n');
+        buffer = lines.removeLast(); // Keep incomplete line
+
+        for (final line in lines) {
+          final trimmed = line.trim();
+          if (trimmed.startsWith('data:')) {
+            final data = trimmed.substring(5).trim();
+            if (data.isNotEmpty) {
+              try {
+                final decoded = jsonDecode(data);
+                if (decoded is Map<String, dynamic>) {
+                  yield decoded;
+                }
+              } catch (_) {}
+            }
+          }
+        }
+      }
+    } finally {
+      client.close();
+    }
   }
 
   // ---- Videos ----
@@ -184,6 +258,29 @@ class ApiClient {
           'cost': cost,
         }));
     _json(res);
+  }
+
+  Future<SavedResult> getVideoResult(dynamic id) async {
+    final res = await http.get(_uri('/api/db/video-results', {'id': '$id'}),
+        headers: _headers);
+    final j = _json(res);
+    final r = j['result'];
+    if (r == null) throw ApiException('Video result not found.', 404);
+    return SavedResult.fromJson(Map<String, dynamic>.from(r));
+  }
+
+  /// Downloads/decodes the full audio bytes (.mp3) for a given video result row.
+  Future<Uint8List?> fetchVideoResultAudioBytes(dynamic id) async {
+    final r = await getVideoResult(id);
+    final audioStr = r.audio;
+    if (audioStr == null || audioStr.isEmpty) return null;
+    if (audioStr.startsWith('data:')) {
+      final comma = audioStr.indexOf(',');
+      if (comma != -1) {
+        return base64Decode(audioStr.substring(comma + 1));
+      }
+    }
+    return base64Decode(audioStr);
   }
 
   // ---- Models & chat ----

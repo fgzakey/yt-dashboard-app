@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../app_state.dart';
 import '../main.dart';
 import '../models.dart';
 import '../md_toc_view.dart';
+import 'past_results.dart';
 
 class ResultsScreen extends StatefulWidget {
   const ResultsScreen({super.key});
@@ -94,7 +96,14 @@ class _ResultsScreenState extends State<ResultsScreen> {
                         itemBuilder: (context, i) {
                           final r = _results[i];
                           return ListTile(
-                            leading: const Icon(Icons.description_outlined),
+                            leading: Icon(
+                              r.hasAudio
+                                  ? Icons.audiotrack
+                                  : Icons.description_outlined,
+                              color: r.hasAudio
+                                  ? Theme.of(context).colorScheme.primary
+                                  : null,
+                            ),
                             title: Text(r.promptName ?? 'Result',
                                 maxLines: 1, overflow: TextOverflow.ellipsis),
                             subtitle: Text(
@@ -106,6 +115,11 @@ class _ResultsScreenState extends State<ResultsScreen> {
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
+                            trailing: r.hasAudio
+                                ? Icon(Icons.download_for_offline_outlined,
+                                    size: 20,
+                                    color: Theme.of(context).colorScheme.primary)
+                                : null,
                             onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(
@@ -125,6 +139,35 @@ class _ResultDetail extends StatelessWidget {
   final SavedResult result;
   const _ResultDetail({required this.result});
 
+  Future<void> _exportAudio(BuildContext context) async {
+    showSnack(context, 'Fetching audio…');
+    try {
+      final state = context.read<AppState>();
+      final bytes = await state.api.fetchVideoResultAudioBytes(result.id);
+      if (bytes == null || bytes.isEmpty) {
+        if (context.mounted) showSnack(context, 'Audio data not found on server.');
+        return;
+      }
+      final name = downloadName(
+        title: result.videoTitle ?? 'Audio',
+        kind: result.promptName ?? 'Narration',
+        date: DateTime.tryParse(result.createdAt ?? ''),
+        ext: 'mp3',
+      );
+      final box = context.findRenderObject() as RenderBox?;
+      final origin =
+          box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+      await SharePlus.instance.share(ShareParams(
+        files: [XFile.fromData(bytes, mimeType: 'audio/mpeg', name: name)],
+        subject:
+            '${result.videoTitle ?? 'Audio'} — ${result.promptName ?? 'Narration'}',
+        sharePositionOrigin: origin,
+      ));
+    } catch (e) {
+      if (context.mounted) showSnack(context, 'Failed to export audio: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -133,6 +176,12 @@ class _ResultDetail extends StatelessWidget {
             maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
           const TextSizeButtons(),
+          if (result.hasAudio)
+            IconButton(
+              tooltip: 'Export Audio (.mp3)',
+              icon: const Icon(Icons.audiotrack),
+              onPressed: () => _exportAudio(context),
+            ),
           IconButton(
             tooltip: 'Copy Markdown',
             icon: const Icon(Icons.copy),

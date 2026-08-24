@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
@@ -196,7 +197,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     final yt = ytUrl(v);
 
     return DefaultTabController(
-      length: 4,
+      length: 5,
       child: Scaffold(
         appBar: AppBar(
           title: Text(v.title ?? v.videoId,
@@ -205,6 +206,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
             Tab(text: 'Chat'),
             Tab(text: 'Chapters'),
             Tab(text: 'Results'),
+            Tab(text: 'Audio'),
             Tab(text: 'Transcript'),
           ]),
           actions: [
@@ -237,7 +239,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
             _buildChat(state, v),
             _buildChapters(state, v),
             // Past prompt results for THIS video — the global Results
-            // section, scoped, between Chapters and Transcript.
+            // section, scoped, between Chapters and Audio.
             PastResultsTab(
               results: _results,
               loading: _resultsLoading,
@@ -246,6 +248,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
               sourceTitle: v.title ?? v.videoId,
               sourceAuthor: v.author,
             ),
+            _buildAudioTab(state, v),
             _buildTranscript(v),
           ],
         ),
@@ -503,6 +506,154 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildAudioTab(AppState state, Video v) {
+    final audioResults = _results.where((r) => r.hasAudio).toList();
+    if (audioResults.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.audiotrack_outlined,
+                  size: 48, color: Theme.of(context).colorScheme.outline),
+              const SizedBox(height: 16),
+              const Text(
+                'No audio narrations for this video yet.\n'
+                'Audio generated from prompt results will appear here for offline download and listening.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              FilledButton.tonalIcon(
+                icon: const Icon(Icons.refresh),
+                label: const Text('Refresh audio'),
+                onPressed: _loadResults,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.all(12),
+      itemCount: audioResults.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
+      itemBuilder: (context, i) {
+        final r = audioResults[i];
+        final name = r.promptName ?? 'Narration';
+        final meta = [
+          fmtWhen(r.createdAt),
+          if (r.model != null && r.model!.isNotEmpty) r.model!,
+          if (r.cost != null && r.cost!.isNotEmpty) r.cost!,
+        ].join(' · ');
+
+        return Card(
+          elevation: 0,
+          color: Theme.of(context).colorScheme.surfaceContainerLow,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(
+                color: Theme.of(context).colorScheme.outlineVariant),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 18,
+                      backgroundColor:
+                          Theme.of(context).colorScheme.primaryContainer,
+                      child: Icon(Icons.audiotrack,
+                          size: 20,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onPrimaryContainer),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(name,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 15)),
+                          if (meta.isNotEmpty)
+                            Text(meta,
+                                style:
+                                    Theme.of(context).textTheme.bodySmall),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton.icon(
+                      icon: const Icon(Icons.article_outlined, size: 18),
+                      label: const Text('View text'),
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => SavedResultPage(
+                            result: r,
+                            sourceTitle: v.title ?? v.videoId,
+                            sourceLine:
+                                '${v.title ?? v.videoId}${v.author == null || v.author!.isEmpty ? '' : ' — ${v.author}'} (video)',
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.icon(
+                      icon: const Icon(Icons.download_for_offline_outlined,
+                          size: 18),
+                      label: const Text('Download .mp3'),
+                      onPressed: () => _downloadAudio(r, v),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _downloadAudio(SavedResult r, Video v) async {
+    showSnack(context, 'Fetching audio…');
+    try {
+      final state = context.read<AppState>();
+      final bytes = await state.api.fetchVideoResultAudioBytes(r.id);
+      if (bytes == null || bytes.isEmpty) {
+        if (mounted) showSnack(context, 'Audio data not found on server.');
+        return;
+      }
+      final fileName = downloadName(
+        title: v.title ?? v.videoId,
+        kind: r.promptName ?? 'Narration',
+        date: DateTime.tryParse(r.createdAt ?? ''),
+        ext: 'mp3',
+      );
+      final box = mounted ? context.findRenderObject() as RenderBox? : null;
+      final origin =
+          box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+      await SharePlus.instance.share(ShareParams(
+        files: [XFile.fromData(bytes, mimeType: 'audio/mpeg', name: fileName)],
+        subject: '${v.title ?? v.videoId} — ${r.promptName ?? 'Audio'}',
+        sharePositionOrigin: origin,
+      ));
+    } catch (e) {
+      if (mounted) showSnack(context, 'Failed to download audio: $e');
+    }
   }
 }
 

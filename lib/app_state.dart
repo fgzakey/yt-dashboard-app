@@ -331,6 +331,139 @@ class AppState extends ChangeNotifier {
     return merged.where((c) => (c['summary'] ?? '').toString().isNotEmpty).length;
   }
 
+  bool playlistImportRunning = false;
+  bool _playlistImportAborted = false;
+  bool get isPlaylistImportAborted => _playlistImportAborted;
+
+  void cancelPlaylistImport() {
+    _playlistImportAborted = true;
+    notifyListeners();
+  }
+
+  void resetPlaylistImportAbort() {
+    _playlistImportAborted = false;
+  }
+
+  /// AI chapterize a single video from scratch (5-12 timestamped chapters with titles and summaries).
+  Future<List<Map<String, dynamic>>> aiChapterizeVideo(Video v) async {
+    final timedText = v.timedTranscript;
+    final langNote = (v.language != null && v.language != 'unknown')
+        ? ' The transcript language is "${v.language}".'
+        : '';
+    final prompt =
+        'Using ONLY the transcript in the reference material below, segment it into 5-12 logical chapters that follow the topic shifts. '
+        'Each chapter\'s "start" MUST be the [seconds] integer taken from the line where that topic begins. '
+        'Titles are 2-6 words. Also write a concise 1-2 sentence "summary" for each chapter, grounded ONLY in that chapter\'s slice of the transcript. '
+        'Write ALL titles and summaries in the SAME language as the transcript — never translate.$langNote '
+        'Order by start ascending; the first chapter starts at 0. '
+        'Return STRICT JSON only: {"chapters":[{"start":0,"title":"...","summary":"..."}]}. No prose, no code fences.\n\n'
+        'Reference transcript:\n$timedText';
+
+    final resp = await api.chat(
+      model: model,
+      messages: [{'role': 'user', 'content': prompt}],
+      temperature: 0.3,
+    );
+    final obj = _looseJson(resp.content);
+    final rawChapters = (obj?['chapters'] as List? ?? []);
+    final chs = <Map<String, dynamic>>[];
+    final seen = <int>{};
+
+    for (final c in rawChapters) {
+      if (c is! Map) continue;
+      final start = (c['start'] as num?)?.toInt() ?? 0;
+      final title = (c['title'] ?? '').toString().trim();
+      final summary = (c['summary'] ?? '').toString().trim();
+      if (title.isNotEmpty && !seen.contains(start)) {
+        seen.add(start);
+        chs.add({
+          'start': start < 0 ? 0 : start,
+          'title': title,
+          'summary': summary,
+          'generated': true,
+        });
+      }
+    }
+    chs.sort((a, b) => (a['start'] as int).compareTo(b['start'] as int));
+    if (chs.isNotEmpty && (chs[0]['start'] as int) != 0) {
+      chs[0]['start'] = 0;
+    }
+    if (chs.isNotEmpty) {
+      v.chapters = chs;
+      await saveVideo(v);
+    }
+    return chs;
+  }
+
+  /// Batch processes a list of videos (chapters or full processing mode).
+  Future<void> runPlaylistBatchProcessing(
+    List<Video> todoList,
+    PlaylistProcessMode mode, {
+    required void Function(int current, int total, String title, String status)
+        onProgress,
+  }) async {
+    if (todoList.isEmpty || mode == PlaylistProcessMode.none) return;
+    if (defaultPrompts.isEmpty) {
+      try {
+        await refreshPrompts();
+      } catch (_) {}
+    }
+
+    final builtins = mode == PlaylistProcessMode.full
+        ? (defaultPrompts.isNotEmpty ? defaultPrompts : prompts)
+        : <PromptTemplate>[];
+
+    for (var i = 0; i < todoList.length; i++) {
+      if (_playlistImportAborted) break;
+      final item = todoList[i];
+      final title = item.title ?? item.videoId;
+
+      // 1. Chapterize
+      onProgress(
+        i + 1,
+        todoList.length,
+        title,
+        'Chapterizing… (${i + 1}/${todoList.length})',
+      );
+      try {
+        await aiChapterizeVideo(item);
+      } catch (_) {}
+
+      // 2. Full mode: execute standard prompts
+      if (mode == PlaylistProcessMode.full && builtins.isNotEmpty) {
+        for (var pIdx = 0; pIdx < builtins.length; pIdx++) {
+          if (_playlistImportAborted) break;
+          final prompt = builtins[pIdx];
+          onProgress(
+            i + 1,
+            todoList.length,
+            title,
+            'Running "${prompt.name}" (${pIdx + 1}/${builtins.length})…',
+          );
+          try {
+            final filled = prompt.fill(
+              title: item.title ?? '',
+              transcript: item.text,
+            );
+            final resp = await api.chat(
+              model: model,
+              messages: [{'role': 'user', 'content': filled}],
+              temperature: 0.3,
+            );
+            await api.saveResult(
+              content: resp.content,
+              videoId: item.videoId,
+              videoTitle: item.title,
+              promptName: prompt.name,
+              model: resp.model ?? model,
+              cost: resp.cost,
+            );
+          } catch (_) {}
+        }
+      }
+    }
+  }
+
   // ---- Syntopical essays ----
 
   Future<void> refreshEssays() async {
