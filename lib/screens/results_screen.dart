@@ -7,9 +7,9 @@ import 'package:share_plus/share_plus.dart';
 
 import '../app_state.dart';
 import '../main.dart';
-import '../models.dart';
+import '../md_toc.dart';
 import '../md_toc_view.dart';
-import 'past_results.dart';
+import '../models.dart';
 
 class ResultsScreen extends StatefulWidget {
   const ResultsScreen({super.key});

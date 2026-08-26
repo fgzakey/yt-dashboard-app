@@ -269,7 +269,7 @@ class _PlaylistImportSheetState extends State<PlaylistImportSheet> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    IconButton.tonal(
+                    IconButton.filledTonal(
                       tooltip: 'Paste from clipboard',
                       icon: const Icon(Icons.paste),
                       onPressed: () async {
@@ -376,7 +376,7 @@ class _PlaylistImportSheetState extends State<PlaylistImportSheet> {
                     children: [
                       Expanded(
                         child: DropdownButtonFormField<String>(
-                          value: _method,
+                          initialValue: _method,
                           decoration: const InputDecoration(
                             labelText: 'Fetch method',
                             isDense: true,

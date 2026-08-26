@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -6,9 +8,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart';
 import '../main.dart';
+import '../md_toc.dart';
+import '../md_toc_view.dart';
 import '../md_zoom.dart';
 import '../models.dart';
-import '../md_toc_view.dart';
 import '../yt_links.dart';
 import 'past_results.dart';
 
@@ -277,6 +280,41 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     }
   }
 
+  Future<void> _exportChapters(Video v) async {
+    final name = downloadName(
+      title: v.title ?? v.videoId,
+      kind: 'Chapters',
+      date: v.savedAt != null
+          ? DateTime.fromMillisecondsSinceEpoch(v.savedAt!)
+          : null,
+      ext: 'md',
+    );
+    final buf = StringBuffer('# ${v.title ?? v.videoId} — Chapters\n\n');
+    for (var i = 0; i < v.chapters.length; i++) {
+      final c = Map<String, dynamic>.from(v.chapters[i] as Map);
+      final title = c['title']?.toString() ?? 'Chapter ${i + 1}';
+      final start = (c['start'] as num?)?.toInt();
+      final timeLabel = start != null ? ' (${_fmtTime(start)})' : '';
+      final entry = formatChapterMarkdown(c);
+      buf.write(
+          '## ${i + 1}. $title$timeLabel\n\n${entry.isNotEmpty ? entry : '_No AI summary yet._'}\n\n');
+    }
+    final box = context.findRenderObject() as RenderBox?;
+    final origin =
+        box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+    await SharePlus.instance.share(ShareParams(
+      files: [
+        XFile.fromData(
+          Uint8List.fromList(utf8.encode(buf.toString().trim())),
+          mimeType: 'text/markdown',
+          name: name,
+        ),
+      ],
+      subject: '${v.title ?? v.videoId} — Chapters',
+      sharePositionOrigin: origin,
+    ));
+  }
+
   Widget _buildChapters(AppState state, Video v) {
     if (v.chapters.isEmpty) {
       return const Center(
@@ -319,6 +357,12 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                 onPressed:
                     _summarizing ? null : () => _summarizeChapters(state, v),
               ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: 'Export Chapters .md',
+                icon: const Icon(Icons.download_outlined),
+                onPressed: () => _exportChapters(v),
+              ),
             ],
           ),
         ),
@@ -335,6 +379,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
               final start = (c['start'] as num?)?.toInt();
               final chapterUrl =
                   (yt != null && start != null) ? ytUrlAt(yt, start) : null;
+              final entry = formatChapterMarkdown(c);
               return ListTile(
                 leading: CircleAvatar(radius: 14, child: Text('${i + 1}')),
                 title: Text(title),
@@ -376,14 +421,17 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                           const SizedBox(width: 4),
                         ],
                       ),
-                      body: ZoomMd(
-                        data: [
-                          if (chapterUrl != null)
-                            '▶ [Watch from ${_fmtTime(start!)}]($chapterUrl)\n',
-                          if (summary.isNotEmpty) '**Summary:** $summary\n',
-                          v.chapterText(i),
-                        ].join('\n'),
-                        scrollable: true,
+                      body: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: ZoomMd(
+                          data: [
+                            if (chapterUrl != null)
+                              '▶ [Watch from ${_fmtTime(start!)}]($chapterUrl)\n',
+                            if (entry.isNotEmpty) '### Chapter Guide\n\n$entry\n\n---\n',
+                            v.chapterText(i),
+                          ].join('\n'),
+                          scrollable: true,
+                        ),
                       ),
                     ),
                   ),
