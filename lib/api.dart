@@ -161,6 +161,15 @@ class ApiClient {
         .toList();
   }
 
+  Future<Video> getVideo(String videoId) async {
+    final res = await http.get(_uri('/api/db/videos', {'id': videoId}),
+        headers: _headers);
+    final j = _json(res);
+    final v = j['video'];
+    if (v == null) throw ApiException('Video not found.', 404);
+    return Video.fromJson(Map<String, dynamic>.from(v));
+  }
+
   Future<void> saveVideo(Video v) async {
     final res = await http.post(_uri('/api/db/videos'),
         headers: _headers, body: jsonEncode(v.toJson()));

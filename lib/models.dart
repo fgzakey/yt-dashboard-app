@@ -11,6 +11,10 @@ class Video {
   List<dynamic> segments;
   List<ChatMessage> chat;
   List<dynamic> chapters;
+  List<dynamic>? originalChapters;
+  List<dynamic>? aiChapters;
+  String? chapterSet; // "ai" | "original"
+  bool fullLoaded;
   int? savedAt; // epoch ms — `updated_at`, i.e. LAST MODIFIED, not last opened
   // Library sort keys, all epoch ms and all nullable: null means the event never
   // happened (never opened, never extracted), which is different from "long ago"
@@ -30,6 +34,10 @@ class Video {
     List<dynamic>? segments,
     List<ChatMessage>? chat,
     List<dynamic>? chapters,
+    this.originalChapters,
+    this.aiChapters,
+    this.chapterSet,
+    this.fullLoaded = false,
     this.savedAt,
     this.addedAt,
     this.openedAt,
@@ -50,6 +58,38 @@ class Video {
         l.startsWith('es_');
   }
 
+  bool get hasBothChapterSets =>
+      (originalChapters != null && originalChapters!.isNotEmpty) &&
+      (aiChapters != null && aiChapters!.isNotEmpty);
+
+  bool get hasOriginalChapters =>
+      (originalChapters != null && originalChapters!.isNotEmpty) ||
+      (chapters.isNotEmpty && !chapters.any((c) => c is Map && c['generated'] == true));
+
+  bool get hasAiChapters =>
+      (aiChapters != null && aiChapters!.isNotEmpty) ||
+      chapters.any((c) => c is Map && c['generated'] == true);
+
+  /// Resolves the chapter list for a given tab ('ai' or 'original').
+  List<dynamic> activeChapterList([String? tab]) {
+    final mode = tab ?? chapterSet;
+    if (mode == 'ai') {
+      if (aiChapters != null && aiChapters!.isNotEmpty) return aiChapters!;
+      final gen = chapters.where((c) => c is Map && c['generated'] == true).toList();
+      if (gen.isNotEmpty) return gen;
+      return chapters;
+    } else if (mode == 'original') {
+      if (originalChapters != null && originalChapters!.isNotEmpty) return originalChapters!;
+      final orig = chapters.where((c) => c is! Map || c['generated'] != true).toList();
+      if (orig.isNotEmpty) return orig;
+      return chapters;
+    }
+    // Auto-resolve: if AI chapters exist, default to AI, otherwise original/chapters
+    if (aiChapters != null && aiChapters!.isNotEmpty) return aiChapters!;
+    if (originalChapters != null && originalChapters!.isNotEmpty) return originalChapters!;
+    return chapters;
+  }
+
   factory Video.fromJson(Map<String, dynamic> j) => Video(
         videoId: j['videoId'] as String,
         title: j['title'] as String?,
@@ -63,6 +103,10 @@ class Video {
             .map((m) => ChatMessage.fromJson(Map<String, dynamic>.from(m)))
             .toList(),
         chapters: (j['chapters'] as List?) ?? [],
+        originalChapters: (j['originalChapters'] as List?) ?? (j['original_chapters'] as List?),
+        aiChapters: (j['aiChapters'] as List?) ?? (j['ai_chapters'] as List?),
+        chapterSet: (j['chapterSet'] as String?) ?? (j['chapter_set'] as String?),
+        fullLoaded: (j['text'] as String? ?? '').isNotEmpty || (j['segments'] as List? ?? []).isNotEmpty,
         savedAt: (j['savedAt'] as num?)?.toInt(),
         addedAt: (j['addedAt'] as num?)?.toInt(),
         openedAt: (j['openedAt'] as num?)?.toInt(),
@@ -80,16 +124,20 @@ class Video {
         'segments': segments,
         'chat': chat.map((m) => m.toJson()).toList(),
         'chapters': chapters,
+        'originalChapters': originalChapters,
+        'aiChapters': aiChapters,
+        'chapterSet': chapterSet,
       };
 
   /// Transcript text for chapter [i], sliced by timestamp — chapters carry a
   /// `start` (seconds); a chapter owns segments in [start, next.start). Falls
   /// back to the whole transcript when there are no timestamps.
-  String chapterText(int i, {int? maxChars}) {
-    if (i < 0 || i >= chapters.length) return '';
-    final start = ((chapters[i] as Map)['start'] as num?)?.toDouble() ?? 0;
-    final end = i + 1 < chapters.length
-        ? ((chapters[i + 1] as Map)['start'] as num?)?.toDouble() ??
+  String chapterText(int i, {int? maxChars, List<dynamic>? chapterList}) {
+    final list = chapterList ?? chapters;
+    if (i < 0 || i >= list.length) return '';
+    final start = ((list[i] as Map)['start'] as num?)?.toDouble() ?? 0;
+    final end = i + 1 < list.length
+        ? ((list[i + 1] as Map)['start'] as num?)?.toDouble() ??
             double.infinity
         : double.infinity;
     final timed = segments.any((s) => (s as Map)['start'] != null);

@@ -28,7 +28,10 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   bool _sending = false;
   bool _running = false;
   bool _summarizing = false;
+  bool _chapterizing = false;
+  bool _loadingFull = false;
   String _summaryStatus = '';
+  String? _chapterSetTab; // 'ai' | 'original' | null (auto)
 
   // Saved results for THIS video (the global Results section, scoped).
   List<SavedResult> _results = [];
@@ -38,7 +41,34 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
   @override
   void initState() {
     super.initState();
+    Future.microtask(_ensureFull);
     Future.microtask(_loadResults);
+  }
+
+  Future<void> _ensureFull() async {
+    final state = context.read<AppState>();
+    final v = _video(state);
+    if (v == null || v.fullLoaded) return;
+    setState(() => _loadingFull = true);
+    try {
+      await state.ensureFullVideo(v);
+    } catch (e) {
+      if (mounted) showSnack(context, 'Could not load full video: $e');
+    }
+    if (mounted) setState(() => _loadingFull = false);
+  }
+
+  String get _activeChapterTab {
+    if (_chapterSetTab == 'ai') return 'ai';
+    if (_chapterSetTab == 'original') return 'original';
+    final v = _video(context.read<AppState>());
+    if (v == null) return 'original';
+    if (v.chapterSet == 'ai') return 'ai';
+    if (v.chapterSet == 'original') return 'original';
+    if (v.aiChapters != null && v.aiChapters!.isNotEmpty) return 'ai';
+    if (v.originalChapters != null && v.originalChapters!.isNotEmpty) return 'original';
+    if (v.chapters.any((c) => c is Map && c['generated'] == true)) return 'ai';
+    return 'original';
   }
 
   Video? _video(AppState state) {
@@ -203,16 +233,17 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
 
     return DefaultTabController(
       length: 5,
+      initialIndex: 0,
       child: Scaffold(
         appBar: AppBar(
           title: Text(v.title ?? v.videoId,
               maxLines: 1, overflow: TextOverflow.ellipsis),
           bottom: const TabBar(isScrollable: true, tabs: [
-            Tab(text: 'Chat'),
             Tab(text: 'Chapters'),
             Tab(text: 'Results'),
             Tab(text: 'Audio'),
             Tab(text: 'Transcript'),
+            Tab(text: 'Chat'),
           ]),
           actions: [
             if (yt != null)
@@ -239,36 +270,59 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
             ),
           ],
         ),
-        body: TabBarView(
+        body: Column(
           children: [
-            _buildChat(state, v),
-            _buildChapters(state, v),
-            // Past prompt results for THIS video — the global Results
-            // section, scoped, between Chapters and Audio.
-            PastResultsTab(
-              results: _results,
-              loading: _resultsLoading,
-              error: _resultsError,
-              onRefresh: _loadResults,
-              videoId: v.videoId,
-              sourceTitle: v.title ?? v.videoId,
-              sourceAuthor: v.author,
+            if (_loadingFull) const LinearProgressIndicator(),
+            Expanded(
+              child: TabBarView(
+                children: [
+                  _buildChapters(state, v),
+                  // Past prompt results for THIS video — the global Results
+                  // section, scoped, between Chapters and Audio.
+                  PastResultsTab(
+                    results: _results,
+                    loading: _resultsLoading,
+                    error: _resultsError,
+                    onRefresh: _loadResults,
+                    videoId: v.videoId,
+                    sourceTitle: v.title ?? v.videoId,
+                    sourceAuthor: v.author,
+                  ),
+                  _buildAudioTab(state, v),
+                  _buildTranscript(v),
+                  _buildChat(state, v),
+                ],
+              ),
             ),
-            _buildAudioTab(state, v),
-            _buildTranscript(v),
           ],
         ),
       ),
     );
   }
 
-  Future<void> _summarizeChapters(AppState state, Video v) async {
+  Future<void> _rechapterize(AppState state, Video v) async {
+    setState(() => _chapterizing = true);
+    try {
+      final chs = await state.aiChapterizeVideo(v);
+      if (mounted) {
+        setState(() => _chapterSetTab = 'ai');
+        showSnack(context, 'Generated ${chs.length} AI chapters.');
+      }
+    } catch (e) {
+      if (mounted) showSnack(context, 'Chapterize failed: $e');
+    }
+    if (mounted) setState(() => _chapterizing = false);
+  }
+
+  Future<void> _summarizeChapters(
+      AppState state, Video v, List<dynamic> targetChapters) async {
     setState(() {
       _summarizing = true;
       _summaryStatus = 'Summarizing…';
     });
     try {
-      final n = await state.summarizeChapters(v, onProgress: (s) {
+      final n = await state.summarizeChapters(v,
+          targetChapters: targetChapters, onProgress: (s) {
         if (mounted) setState(() => _summaryStatus = s);
       });
       if (mounted) showSnack(context, 'Summarized $n chapter(s).');
@@ -283,18 +337,20 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
     }
   }
 
-  Future<void> _exportChapters(Video v) async {
+  Future<void> _exportChapters(Video v, List<dynamic> chapters) async {
+    final isOrig = _activeChapterTab == 'original';
+    final kind = isOrig ? 'Original Chapters' : 'AI Generated Chapters';
     final name = downloadName(
       title: v.title ?? v.videoId,
-      kind: 'Chapters',
+      kind: kind,
       date: v.savedAt != null
           ? DateTime.fromMillisecondsSinceEpoch(v.savedAt!)
           : null,
       ext: 'md',
     );
-    final buf = StringBuffer('# ${v.title ?? v.videoId} — Chapters\n\n');
-    for (var i = 0; i < v.chapters.length; i++) {
-      final c = Map<String, dynamic>.from(v.chapters[i] as Map);
+    final buf = StringBuffer('# ${v.title ?? v.videoId} — $kind\n\n');
+    for (var i = 0; i < chapters.length; i++) {
+      final c = Map<String, dynamic>.from(chapters[i] as Map);
       final title = c['title']?.toString() ?? 'Chapter ${i + 1}';
       final start = (c['start'] as num?)?.toInt();
       final timeLabel = start != null ? ' (${_fmtTime(start)})' : '';
@@ -313,70 +369,150 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           name: name,
         ),
       ],
-      subject: '${v.title ?? v.videoId} — Chapters',
+      subject: '${v.title ?? v.videoId} — $kind',
       sharePositionOrigin: origin,
     ));
   }
 
   Widget _buildChapters(AppState state, Video v) {
-    if (v.chapters.isEmpty) {
-      return const Center(
+    final activeTab = _activeChapterTab;
+    final displayChapters = v.activeChapterList(activeTab);
+    final hasBothSets = v.hasBothChapterSets;
+    final isOrig = activeTab == 'original';
+
+    if (displayChapters.isEmpty && !v.hasAiChapters && !v.hasOriginalChapters) {
+      return Center(
         child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Text(
-            'No chapters for this video.\nFetch chapters in the web dashboard (they sync here).',
-            textAlign: TextAlign.center,
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'No chapters for this video yet.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                icon: _chapterizing
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.auto_awesome),
+                label: Text(_chapterizing ? 'Chapterizing…' : 'Generate AI Chapters'),
+                onPressed: _chapterizing ? null : () => _rechapterize(state, v),
+              ),
+            ],
           ),
         ),
       );
     }
+
     final yt = ytUrl(v);
-    final hasSummaries = v.chapters
+    final hasSummaries = displayChapters
         .any((c) => ((c as Map)['summary'] ?? '').toString().isNotEmpty);
+
     return Column(
       children: [
+        if (hasBothSets)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+            child: Row(
+              children: [
+                ChoiceChip(
+                  avatar: const Text('🤖'),
+                  label: Text('AI Generated (${v.aiChapters!.length})'),
+                  selected: !isOrig,
+                  onSelected: (_) {
+                    setState(() => _chapterSetTab = 'ai');
+                    state.switchVideoChapterSet(v, 'ai');
+                  },
+                ),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  avatar: const Text('📋'),
+                  label: Text('Original (${v.originalChapters!.length})'),
+                  selected: isOrig,
+                  onSelected: (_) {
+                    setState(() => _chapterSetTab = 'original');
+                    state.switchVideoChapterSet(v, 'original');
+                  },
+                ),
+              ],
+            ),
+          ),
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
           child: Row(
             children: [
               Expanded(
                 child: Text(
-                  _summarizing
-                      ? _summaryStatus
-                      : yt == null
-                          ? '${v.chapters.length} chapters — tap one to read'
-                          : '${v.chapters.length} chapters — tap to read, ▶ to watch',
-                  style: Theme.of(context).textTheme.bodySmall,
+                  _chapterizing
+                      ? 'Chapterizing…'
+                      : _summarizing
+                          ? _summaryStatus
+                          : isOrig
+                              ? 'Original Chapters (${displayChapters.length})'
+                              : 'AI Generated Chapters (${displayChapters.length})',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                 ),
               ),
               FilledButton.tonalIcon(
+                icon: _chapterizing
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Icon(Icons.auto_awesome, size: 16),
+                label: Text(
+                  _chapterizing
+                      ? 'Working…'
+                      : v.hasAiChapters
+                          ? 'Re-chapterize'
+                          : 'AI Chapterize',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                onPressed: (_chapterizing || _summarizing)
+                    ? null
+                    : () => _rechapterize(state, v),
+              ),
+              const SizedBox(width: 6),
+              OutlinedButton.icon(
                 icon: _summarizing
                     ? const SizedBox(
-                        width: 16,
-                        height: 16,
+                        width: 14,
+                        height: 14,
                         child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.auto_awesome, size: 18),
-                label: Text(hasSummaries ? 'Re-summarize' : 'Summarize'),
-                onPressed:
-                    _summarizing ? null : () => _summarizeChapters(state, v),
+                    : const Icon(Icons.summarize_outlined, size: 16),
+                label: Text(
+                  hasSummaries ? 'Re-summarize' : 'Summarize',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                onPressed: (_summarizing || _chapterizing || displayChapters.isEmpty)
+                    ? null
+                    : () => _summarizeChapters(state, v, displayChapters),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 4),
               IconButton(
                 tooltip: 'Export Chapters .md',
-                icon: const Icon(Icons.download_outlined),
-                onPressed: () => _exportChapters(v),
+                icon: const Icon(Icons.download_outlined, size: 20),
+                onPressed: displayChapters.isEmpty
+                    ? null
+                    : () => _exportChapters(v, displayChapters),
               ),
             ],
           ),
         ),
-        if (_summarizing) const LinearProgressIndicator(),
+        if (_summarizing || _chapterizing) const LinearProgressIndicator(),
         Expanded(
           child: ListView.separated(
             padding: const EdgeInsets.all(8),
-            itemCount: v.chapters.length,
+            itemCount: displayChapters.length,
             separatorBuilder: (_, _) => const Divider(height: 1),
             itemBuilder: (context, i) {
-              final c = Map<String, dynamic>.from(v.chapters[i] as Map);
+              final c = Map<String, dynamic>.from(displayChapters[i] as Map);
               final title = c['title']?.toString() ?? 'Chapter ${i + 1}';
               final summary = c['summary']?.toString() ?? '';
               final start = (c['start'] as num?)?.toInt();
@@ -410,8 +546,8 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                         title: Text(title,
                             maxLines: 1, overflow: TextOverflow.ellipsis),
                         leading: IconButton(
-                          icon: const Icon(Icons.close),
-                          onPressed: () => Navigator.pop(context),
+                           icon: const Icon(Icons.close),
+                           onPressed: () => Navigator.pop(context),
                         ),
                         actions: [
                           if (chapterUrl != null)
@@ -431,7 +567,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                             if (chapterUrl != null)
                               '▶ [Watch from ${_fmtTime(start!)}]($chapterUrl)\n',
                             if (entry.isNotEmpty) '### Chapter Guide\n\n$entry\n\n---\n',
-                            v.chapterText(i),
+                            v.chapterText(i, chapterList: displayChapters),
                           ].join('\n'),
                           scrollable: true,
                         ),

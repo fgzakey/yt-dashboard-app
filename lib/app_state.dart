@@ -293,24 +293,49 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> ensureFullVideo(Video v) async {
+    if (v.fullLoaded) return;
+    try {
+      final full = await api.getVideo(v.videoId);
+      v.text = full.text;
+      v.segments = full.segments;
+      v.chat = full.chat;
+      if (full.originalChapters != null) v.originalChapters = full.originalChapters;
+      if (full.aiChapters != null) v.aiChapters = full.aiChapters;
+      if (full.chapterSet != null) v.chapterSet = full.chapterSet;
+      if (full.chapters.isNotEmpty && v.chapters.isEmpty) v.chapters = full.chapters;
+      v.fullLoaded = true;
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> switchVideoChapterSet(Video v, String targetSet) async {
+    v.chapterSet = targetSet;
+    v.chapters = v.activeChapterList(targetSet);
+    await saveVideo(v);
+    notifyListeners();
+  }
+
   /// Generate a concise 1–2 sentence AI summary for each chapter, grounded
   /// only in that chapter's transcript. Mirrors the web dashboard. Returns how
   /// many chapters ended up with a summary.
   Future<int> summarizeChapters(Video v,
-      {void Function(String status)? onProgress}) async {
-    if (v.chapters.isEmpty) return 0;
+      {List<dynamic>? targetChapters,
+      void Function(String status)? onProgress}) async {
+    final list = targetChapters ?? v.chapters;
+    if (list.isEmpty) return 0;
     final timed = v.segments.any((s) => (s as Map)['start'] != null);
-    if (v.chapters.length > 1 && !timed) {
+    if (list.length > 1 && !timed) {
       throw ApiException(
           "This transcript has no timestamps, so text can't be mapped to chapters. Re-fetch it with timecodes.",
           400);
     }
     onProgress?.call('Summarizing chapters…');
     final merged =
-        v.chapters.map((c) => Map<String, dynamic>.from(c as Map)).toList();
+        list.map((c) => Map<String, dynamic>.from(c as Map)).toList();
     final parts = <String>[];
     for (var i = 0; i < merged.length; i++) {
-      final txt = v.chapterText(i, maxChars: 3500);
+      final txt = v.chapterText(i, maxChars: 3500, chapterList: merged);
       parts.add(
           'Chapter $i — ${merged[i]['title']}\nTranscript: ${txt.isEmpty ? '(no transcript in range)' : txt}');
     }
@@ -331,6 +356,13 @@ class AppState extends ChangeNotifier {
         if (sum.isNotEmpty) merged[i]['summary'] = sum;
       }
     }
+    if (identical(list, v.originalChapters) ||
+        (v.originalChapters != null && v.chapterSet == 'original')) {
+      v.originalChapters = merged;
+    } else if (identical(list, v.aiChapters) ||
+        (v.aiChapters != null && v.chapterSet == 'ai')) {
+      v.aiChapters = merged;
+    }
     v.chapters = merged;
     await saveVideo(v);
     return merged.where((c) => (c['summary'] ?? '').toString().isNotEmpty).length;
@@ -350,6 +382,7 @@ class AppState extends ChangeNotifier {
   }
 
   /// AI chapterize a single video from scratch (5-12 timestamped chapters with titles and summaries).
+  /// Preserves any original chapters under `originalChapters` and stores generated ones under `aiChapters`.
   Future<List<Map<String, dynamic>>> aiChapterizeVideo(Video v) async {
     final timedText = v.timedTranscript;
     final langNote = (v.language != null && v.language != 'unknown')
@@ -394,7 +427,16 @@ class AppState extends ChangeNotifier {
       chs[0]['start'] = 0;
     }
     if (chs.isNotEmpty) {
+      // Preserve existing original chapters if not yet saved separately
+      if (v.originalChapters == null || v.originalChapters!.isEmpty) {
+        final prevOrig = v.chapters.where((c) => c is! Map || c['generated'] != true).toList();
+        if (prevOrig.isNotEmpty) {
+          v.originalChapters = prevOrig;
+        }
+      }
+      v.aiChapters = chs;
       v.chapters = chs;
+      v.chapterSet = 'ai';
       await saveVideo(v);
     }
     return chs;
