@@ -38,6 +38,18 @@ class Video {
         chat = chat ?? [],
         chapters = chapters ?? [];
 
+  /// Phil's Library only supports English ('en') and Spanish ('es') transcripts.
+  bool get isSupportedLanguage {
+    final l = (language ?? '').trim().toLowerCase();
+    if (l.isEmpty || l == 'unknown') return true;
+    return l == 'en' ||
+        l.startsWith('en-') ||
+        l.startsWith('en_') ||
+        l == 'es' ||
+        l.startsWith('es-') ||
+        l.startsWith('es_');
+  }
+
   factory Video.fromJson(Map<String, dynamic> j) => Video(
         videoId: j['videoId'] as String,
         title: j['title'] as String?,

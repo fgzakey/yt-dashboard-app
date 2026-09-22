@@ -250,6 +250,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
               loading: _resultsLoading,
               error: _resultsError,
               onRefresh: _loadResults,
+              videoId: v.videoId,
               sourceTitle: v.title ?? v.videoId,
               sourceAuthor: v.author,
             ),
@@ -654,11 +655,43 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (!v.isSupportedLanguage)
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.errorContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded,
+                      color: Theme.of(context).colorScheme.onErrorContainer),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'This video transcript is in an unsupported language (${v.language}). '
+                      "Phil's Library only supports English ('en') and Spanish ('es') transcripts.",
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onErrorContainer,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Wrap(
             spacing: 8,
             children: [
               Chip(label: Text('${v.wordCount} words')),
-              if (v.language != null) Chip(label: Text(v.language!)),
+              if (v.language != null)
+                Chip(
+                  label: Text(v.language!),
+                  avatar: !v.isSupportedLanguage
+                      ? const Icon(Icons.warning_amber_rounded, size: 16)
+                      : null,
+                ),
               if (yt != null)
                 ActionChip(
                   avatar: const Icon(Icons.smart_display_outlined, size: 16),
