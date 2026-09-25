@@ -445,20 +445,6 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
           child: Row(
             children: [
-              Expanded(
-                child: Text(
-                  _chapterizing
-                      ? 'Chapterizing…'
-                      : _summarizing
-                          ? _summaryStatus
-                          : isOrig
-                              ? 'Original Chapters (${displayChapters.length})'
-                              : 'AI Generated Chapters (${displayChapters.length})',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                ),
-              ),
               FilledButton.tonalIcon(
                 icon: _chapterizing
                     ? const SizedBox(
@@ -478,7 +464,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                     ? null
                     : () => _rechapterize(state, v),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 8),
               OutlinedButton.icon(
                 icon: _summarizing
                     ? const SizedBox(
@@ -494,7 +480,7 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
                     ? null
                     : () => _summarizeChapters(state, v, displayChapters),
               ),
-              const SizedBox(width: 4),
+              const Spacer(),
               IconButton(
                 tooltip: 'Export Chapters .md',
                 icon: const Icon(Icons.download_outlined, size: 20),
@@ -505,7 +491,20 @@ class _VideoDetailScreenState extends State<VideoDetailScreen> {
             ],
           ),
         ),
-        if (_summarizing || _chapterizing) const LinearProgressIndicator(),
+        if (_summarizing || _chapterizing) ...[
+          const LinearProgressIndicator(),
+          if (_summaryStatus.isNotEmpty || _chapterizing)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  _chapterizing ? 'Chapterizing…' : _summaryStatus,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ),
+        ],
         Expanded(
           child: ListView.separated(
             padding: const EdgeInsets.all(8),
